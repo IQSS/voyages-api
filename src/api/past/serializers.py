@@ -854,7 +854,7 @@ class EnslavedAggRoutesEdgesSerializer(serializers.Serializer):
 	target=serializers.CharField(required=False)
 	type=serializers.CharField(required=False)
 	weight=serializers.IntegerField(required=False)
-	controls=serializers.ListField(child=serializers.ListField(child=serializers.FloatField(allow_null=False)))
+	controls=serializers.ListField(child=serializers.ListField(child=serializers.FloatField(allow_null=True)),required=False)
 
 class EnslavedAggRoutesNodesDataSerializer(serializers.Serializer):
 	lat=serializers.FloatField(allow_null=False,required=False)

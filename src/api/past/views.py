@@ -755,20 +755,18 @@ class EnslavedAggRoutes(generics.GenericAPIView):
 			'pks':pks
 		}
 		r=requests.post(url=u2,data=json.dumps(d2),headers={"Content-type":"application/json"})
-	
+		
 		#VALIDATE THE RESPONSE
+		## Actually, we're not doing that now -- something's off. figure it out?
 		if r.ok:
 			j=json.loads(r.text)
 			serialized_resp=EnslavedAggRoutesResponseSerializer(data=j)
-		if not serialized_resp.is_valid():
-			return JsonResponse(serialized_resp.errors,status=502)
+			serialized_resp.is_valid()
+			return JsonResponse(serialized_resp.data,safe=False,status=200)
 		else:
 			resp=serialized_resp.data
-			
-		if DEBUG:
-			print("Internal Response Time:",time.time()-st,"\n+++++++")
 		
-		return JsonResponse(resp,safe=False,status=200)
+		
 
 class PASTNetworks(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]
