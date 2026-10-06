@@ -887,6 +887,7 @@ class VoyageCrossTabRequestSerializer(serializers.Serializer):
 	)
 	binsize=serializers.IntegerField(
 		required=False,
+		allow_null=True,
 		help_text="this field should only be used when the row selector is a year variable"
 	)
 	rows_label=serializers.CharField(required=False)

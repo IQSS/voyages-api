@@ -188,6 +188,7 @@ def sort_queryset(filtered_queryset,params,all_fields):
 
 	return filtered_queryset
 
+
 def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 	'''
 		This function handles:
@@ -342,7 +343,9 @@ def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 				
 				filter_obj.remove(item)
 		# TYPICAL ORM-BASED SEARCH/FILTER
+		
 		for item in filter_obj:
+			kwargs={}
 			#construct the django-style search on any related field
 			op=item['op']
 			varName=item["varName"]
@@ -380,8 +383,8 @@ def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 				error_messages.append(f"Invalid Filter Item Operation: {item}")
 			
 			try:
-# 				print("kwargs-->",kwargs)
 				filtered_queryset=filtered_queryset.filter(**kwargs)
+# 				print("kwargs",kwargs,"queryset count",filtered_queryset.count())
 			except Exception as e:
 				badfielderrormessage=f"Invalid Filter Item: {item} -> {e}"
 				error_messages.append(badfielderrormessage)
