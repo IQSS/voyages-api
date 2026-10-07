@@ -1,5 +1,2 @@
-static/*
-!static/empty
-
-staticfiles/*
-!staticfiles/empty
+voyages3/localsettings.py
+static/

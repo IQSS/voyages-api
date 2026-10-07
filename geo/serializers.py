@@ -4,8 +4,6 @@ import re
 from .models import *
 from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 from django.core.exceptions import ObjectDoesNotExist
-from drf_writable_nested.serializers import WritableNestedModelSerializer
-from drf_writable_nested.mixins import UniqueFieldsMixin
 
 class CRUDLocationTypeSerializer(serializers.ModelSerializer):
 	class Meta:

@@ -38,6 +38,7 @@ urlpatterns = [
     path('captcha/', include('captcha.urls')),
     path('filebrowser/', site.urls),
     path('tinymce/', site.urls),
+    path('contrib/', include('contrib.urls')),
 	re_path(r'^_nested_admin/', include('nested_admin.urls')),
     path('schema/', SpectacularAPIView.as_view(), name='schema'),
     path('', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui')

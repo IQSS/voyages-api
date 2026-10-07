@@ -1,0 +1,131 @@
+@CurrentHost = http://localhost:8000
+
+# @name location-fetch
+POST {{CurrentHost}}/contrib/data
+Accept: application/json
+Content-Type: application/json
+Accept-Language: en-US,en;q=0.5
+
+{
+  "single": {
+    "query": {
+      "model": "geo.Location",
+      "filter": []
+    },
+    "fields": [
+      "name",
+      "value"
+    ]
+  }
+}
+
+###
+
+# @name nationality
+POST {{CurrentHost}}/contrib/data
+Accept: application/json
+Content-Type: application/json
+Accept-Language: en-US,en;q=0.5
+
+{
+  "single": {
+    "query": {
+      "model": "voyage_nationality",
+      "filter": []
+    },
+    "fields": [
+      "name"
+    ]
+  }
+}
+
+###
+
+# @name single-voyage
+POST {{CurrentHost}}/contrib/data
+Accept: application/json
+Content-Type: application/json
+Accept-Language: en-US,en;q=0.5
+
+{
+  "q1": {
+    "query": {
+      "model": "voyage_voyage",
+      "filter": [ { "field": "voyage_id", "value": "1" } ]
+    },
+    "fields": [ "voyage_id", "dataset" ]
+  }
+}
+
+###
+
+# @name multiple-queries
+POST {{CurrentHost}}/contrib/data
+Accept: application/json
+Content-Type: application/json
+Accept-Language: en-US,en;q=0.5
+
+{
+  "q47": {
+    "query": {
+      "model": "past_enslaveralias",
+      "filter": [
+        {
+          "field": "id",
+          "value": 1035662
+        }
+      ]
+    },
+    "fields": [
+      "alias",
+      "identity_id",
+      "id"
+    ]
+  },
+  "q48": {
+    "query": {
+      "model": "past_enslaverinrelation_roles",
+      "filter": [
+        {
+          "field": "enslaverinrelation_id",
+          "value": 1080
+        }
+      ]
+    },
+    "fields": [
+      "enslaverinrelation_id",
+      "enslaverrole_id",
+      "id"
+    ]
+  }
+}
+
+###
+
+# @name VoyageSources
+POST {{CurrentHost}}/contrib/data
+Accept: application/json
+Content-Type: application/json
+Accept-Language: en-US,en;q=0.5
+
+{
+  "q1": {
+    "query": {
+      "model": "document_source",
+      "filter": []
+    },
+    "fields": [
+      "title",
+      "short_ref",
+      "bib",
+      "notes"
+    ]
+  }
+}
+
+###
+
+# @name location_tree
+GET {{CurrentHost}}/contrib/location_tree
+
+###

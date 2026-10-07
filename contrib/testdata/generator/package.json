@@ -1,0 +1,12 @@
+{
+  "name": "contrib-changeset-fixtures",
+  "private": true,
+  "type": "module",
+  "description": "Generates the changeset fixtures the contrib tests replay.",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "dependencies": {
+    "@slavevoyages/voyages-contribute": "^0.6.3"
+  }
+}

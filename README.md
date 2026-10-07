@@ -1,274 +1,541 @@
-# VOYAGES API
+# SV Django API
+
+The code in this container builds a Python Django API for the SlaveVoyages.org project.
+
+A core principle of the rearchitecture was that the ORM should be exposed so that the relational data could be searched on more or less arbitrarily. For instance, you should be able to search Enslaved People by the name of the ship they were transported on, and you should be able to search Voyages for the names of the Enslaved People transported on them.
+
+## Containerization
+
+The app is built to be run as a standalone container.
+
+It must be run with a bind mount to localsettings, as this is not included in the docker image:
+
+	docker run -p 0.0.0.0:8000:8000 --mount type=bind,src=./voyages3/localsettings.py,target=/srv/voyages-api/voyages3/localsettings.py slavevoyages/voyages-api:latest
+
+
+## Core dependencies
+
+* The API functionality is built on the Django Rest Framework (DRF) package
+* The DRF serializers use drf-writable-nested
+	* This allows us to create & edit the highly-relational data
+	* But it also necessitates READONLY serializers because it is not performant at scale
+	* and that package does not support unique-together constraints
+* The more generic api endpoints are documented with Swagger at [{OPEN_API_BASE_URL}/]({OPEN_API_BASE_URL}/)
+	* on the basis of the [drf serializes](https://www.django-rest-framework.org/api-guide/serializers/)
+	* using the [drf-spectacular package](https://drf-spectacular.readthedocs.io/en/latest/)
+
+If your main concern is to pull a paginated list view of items or a single item by its primary key, read the Django Swagger docs: [{OPEN_API_BASE_URL}/]({OPEN_API_BASE_URL}/)
 
-The following notes provide an overview of how to install and run the SV API project, which is a restructuring of SlaveVoyages.org to bring it closer to a true microservices model.
+## Main routes
 
-For notes on the project structure, see the [Project Structure readme file](src/api/README.md)
+Each of the project's main object classes has its own route and related endpoints:
 
-For a Swagger UI presentation of the API documentation's generic public endpoints, go to the root url of the endpoint:
+* Voyages: [voyage/]({OPEN_API_BASE_URL}/voyage/)
+* Enslaved People: [past/enslaved/]({OPEN_API_BASE_URL}/past/enslaved/)
+* Enslavers: [past/enslaver/]({OPEN_API_BASE_URL}/past/enslaver/)
+* Geographic Locations (presented as a tree): [geo/]({OPEN_API_BASE_URL}/geo/)
+* Documents: [docs/]({OPEN_API_BASE_URL}/docs/)
+* Blog Posts: [blog/]({OPEN_API_BASE_URL}/blog/)
+* Common: [common/]({OPEN_API_BASE_URL}/common/)
+
+The frontend application uses some customized endpoints, which we are still iterating on, in order to provide some highly useful search capabilities. To the extent possible, the methods of using these customized endpoints is kept consistent.
+
+## Schema Presentation
 
-* Running locally: [127.0.0.1:8000/](127.0.0.1:8000/)
-* Current public location (subject to change): [https://voyages-api-staging.crc.rice.edu/](https://voyages-api-staging.crc.rice.edu/)
+Because we are exposing as much of the ORM as is practicable, it is crucial to be able to inspect what variables are available to us for searching, and what their data types are so that we will know how to search them.
 
-## System Requirements
+The app uses the Serializers to record in json format the schema for these main object classes, e.g., [{OPEN_API_BASE_URL}/common/schemas/?hierarchical=False&schema_name=Voyage]({OPEN_API_BASE_URL}/common/schemas/?hierarchical=False&schema_name=Voyage) will return a double-underscore-notation representation of the schema for Voyages:
 
-For reference, this document was written while testing on a 2022 MacBook Pro
-running MacOS Ventura and Docker Desktop 4.21.1.
+	{
+	  "id": {
+		"type": "integer",
+		"many": false
+	  },
+	  "voyage_source_connections__id": {
+		"type": "integer",
+		"many": true
+	  },
+		...
+	  },
+	  "voyage_source_connections__source__zotero_grouplibrary_name": {
+		"type": "string",
+		"many": true
+	  }...
+	  "voyage_itinerary__imp_principal_region_slave_dis__name": {
+		"type": "string",
+		"many": true
+	  },
+	}
+  
+... and [{OPEN_API_BASE_URL}/common/schemas/?hierarchical=False&schema_name=Voyage]({OPEN_API_BASE_URL}/common/schemas/?hierarchical=False&schema_name=Voyage) will return a nested representation of the schema for Enslaved People:
 
-Install the macOS Xcode Command Line Tools.
+	{
+	  "id": {
+		"type": "integer",
+		"many": false
+	  },
+	  "post_disembark_location": {
+		"id": {
+		  "type": "integer",
+		  "many": false
+		},
+		"uuid": {
+		  "type": "number",
+		  "many": false
+		},
+		"name": {
+		  "type": "string",
+		  "many": false
+		},
+		"longitude": {
+		  "type": "number",
+		  "many": false
+		}...
+	  }...
+	}
 
-```bash
-local:~$ sudo xcodebuild -license
-local:~$ xcode-select install
-```
+## Queries on custom endpoints
 
-Install Homebrew.
+Requests for data are made via POST calls. In any call, if a django-style double-underscore-notation variable for that endpoint is present as a key in the request body, then its value will be used as a filter.
 
-```bash
-local:~$ /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-```
+For instance, if 
+```voyage_itinerary__imp_principal_region_slave_dis__name``` is a key in the payload of a call to [{OPEN_API_BASE_URL}/voyage/]({OPEN_API_BASE_URL}/voyage/), then the associated value would be used to filter voyages by the name of their imputed principal region of disembarkation.
 
-Install and configure the GitHub CLI.
+Right now, we have 2 basic types of variable, each of which is always handled in the same way -- this will have to change eventually. I don't want to push this too far just yet, because I'm trying to keep *django* in-memory caches out of the picture -- so, for instance, if we wanted to do fuzzy matches on strings, we'd either have to cache those in django or use a solr index *for every text field* or move to a postgresql db which can handle levenstein natively.
 
-```bash
-local:~$ brew install gh
-local:~$ gh auth login
-```
+### Numeric variables and aggregation views
 
-Install Docker Desktop.
+Numeric variables are filtered according to a min/max range as given by a tuple. A call to voyages with the below payload: 
 
-Optionally, download and install manually instead of using Homebrew.
+	{
+		'voyage_dates__voyage_began_sparsedate__year':[1820,1850]
+	}
 
-```bash
-local:~$ brew install --cask docker
-```
+Will return voyages that began in the years between 1820-1850 (inclusive).
 
-## Getting Started
+Use these with aggregation views to make responsive rangesliders. The numeric variables on the different endpoints can all be queried in order to get their min/max.
 
-Change to your local project directory (in this case, `~/Projects`).
+For instance, a call to ```voyage/aggregations/``` like so:
 
-```bash
-local:~$ cd Projects
-```
+	{
+		'aggregate_fields': [  
+			'voyage_dates__imp_arrival_at_port_of_dis_sparsedate__year'
+		]
+	}
 
-Fork the `rice-crc/voyages-api` repository and clone to your local environment.
+... will return the minimum and maximum values for the years on which voyages arrived at their port of disembarkation. This can be used to make a rangeslider customized for that variable.
 
-```bash
-local:~/Projects$ gh repo fork rice-crc/voyages-api --remote --default-branch-only --clone
-```
+### String variables & autocomplete
 
-## Local App Deployment
+String variables are filtered according to exact matches in an OR statement. For instance, a call to voyages with the below payload:
+	
+	{
+		voyage_itinerary__imp_principal_region_slave_dis__name : [
+			'Barbados',
+			'Jamaica'
+		]
+	}
 
-Change to the cloned repository directory.
+Will return all the voyages for whom the imputed principal region of disembarkation is either Barbados OR Jamaica.
 
-```bash
-local:~/Projects$ cd voyages-api
-```
+Use these with autocomplete views to make responsive autocomplete multi-select filter components. This allows for an efficient searching of the text fields with inexact text matches, in order to then subsequently filter on them with an exact OR match.
 
-Copy the default config files for each app component.
+For instance, a search on [{OPEN_API_BASE_URL}/voyage/autocomplete/]({OPEN_API_BASE_URL}/voyage/autocomplete/) like so:
 
-```bash
-local:~/Projects/voyages-api$ cp src/api/voyages3/localsettings.py{-default,}
-local:~/Projects/voyages-api$ cp src/api/voyages3/google_auth.json{-example,}
-local:~/Projects/voyages-api$ cp src/geo-networks/localsettings.py{-default,}
-local:~/Projects/voyages-api$ cp src/people-networks/localsettings.py{-default,}
-local:~/Projects/voyages-api$ cp src/stats/localsettings.py{-default,}
-```
+	{
+		voyage_itinerary__imp_principal_region_slave_dis__name : ['jam']
+	}
+	
+...will return: 
 
-Download the latest database dump from the Google Drive project share and
-expand into the `data/` directory. Rename the expanded file to `data/voyages_prod.sql`.
+	{
+		"total_results_count": 1,
+		"results": [
+			{"id": 71, "label": "Jamaica"}
+		]
+	}
 
-*Optional*: Add the correct credentials to the `src/api/voyages3/google_auth.json` file in order to enable automatic blog translations.
+.... which lets you know that the only valid value in that field that starts with "jam" is "Jamaica" -- from which information you can construct an autocomplete component.
 
-Build the API containers. The component containers must be built separately.
+### TBD:
 
-```bash
-local:~/Projects/voyages-api$ docker compose up --build -d voyages-mysql voyages-api voyages-adminer voyages-solr
-```
+There's work to be done here:
 
-_Note: you can remove the `-d` option to run the process in the foreground. JCM always does this to watch the logs._
+* allow for an inexact match on strings
+* allow for a single numeric value to be selected
+	* which is only doable if the exact OR filters are no longer the default
+* autocomplete views should be paginated
 
-Allow a short bit of time for the mysql container to initialize. Then inject the sql dump.
+But that will require coordination with the front-end folks, as it will introduce breaking changes.
 
-```bash
-local:~/Projects/voyages-api$ docker exec -i voyages-mysql mysql -uroot -pvoyages voyages_api < data/voyages_prod.sql
-```
+----------
 
-Verify the data import.
+## Supporting containers
 
-```bash
-local:~/Projects/voyages-api$ docker exec -i voyages-mysql mysql -uvoyages -pvoyages -e "show databases"
-local:~/Projects/voyages-api$ docker exec -i voyages-mysql mysql -uvoyages -pvoyages -e "show tables from voyages_api"
-local:~/Projects/voyages-api$ docker exec -i voyages-mysql mysql -uvoyages -pvoyages -e "select * from voyages_api.voyage_voyage limit 1"
-```
+The statistics, mapping, and network endpoints all run in [Python Flask](https://flask.palletsprojects.com/en/3.0.x/) containers that are typically only accessed through the voyages-api Django endpoint.
 
-Run the app setup and configuration tasks.
+Flask was chosen because it is even lighter-weight than Django, and so has become a go-to back-end technology for data science webservers.
 
-```bash
-local:~/Projects/voyages-api$ docker exec -i voyages-api bash -c 'python3 manage.py collectstatic --noinput'
-local:~/Projects/voyages-api$ docker exec -i voyages-api bash -c 'python3 manage.py migrate'
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c voyages -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c enslavers -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c enslaved -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c blog -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c sources -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c voyagesources -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c enslaversources -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-solr solr create_core -c enslavedsources -d /srv/voyages/solr
-local:~/Projects/voyages-api$ docker exec -i voyages-api bash -c 'python3 manage.py index_enslaver_data'
-local:~/Projects/voyages-api$ docker exec -i voyages-api bash -c 'python3 manage.py rebuild_indices'
-```
+The typical workflow for these ancillary services is:
 
-Build the API component containers.
+* On initialization, the supporting container
+	* Runs several dataframe queries against voyages-api
+	* Transforms that data and stores it in a networkx or pandas in-memory database
+	* Waits for requests from voyages-api
+* The supported endpoint (like [voyage/groupby]({OPEN_API_BASE_URL}/voyage/groupby/)) receives
+	* A normal filter object
+	* One or more extra arguments particular to that endpoint
+* The query is run by django, which
+	* Retrieves only the pk's for the objects that meet the criteria
+	* Passes those pk's and the extra arguments to the external container
+* The supporting container then
+	* Uses the pk's to filter down what it will be computing on
+	* Uses the extra arguments to use Pandas or NetworkX functionality
+	* Returns the json-serialized results to voyages-api, which completes the request
+	
+What follows summarizes how these containers work. Maintainer notes are to come.
 
-```bash
-local:~/Projects/voyages-api$ docker compose up --build -d voyages-geo-networks voyages-people-networks voyages-stats
-```
+### Voyages-Stats
 
-Rebuild the map routes (this can take some time).
+This container uses Pandas to build in-memory databases that can quickly produce json summary statistics that fit well into the plotly.js graphing library. Typically, these requests are about providing summary statistics using pandas functions like groupby.
 
-```bash
-local:~/Projects/voyages-api$ docker exec -i voyages-geo-networks bash -c 'flask pickle rebuild'
-```
+Right now, we've only applied these statistical operations to the voyages endpoint. We need to have discussions about how we want to visualize numerical data related to people.
 
-## A note on media files
+### Voyages-People-Networks
 
-The API requires certain media or static files to be available, primarily for the blog endpoint. These require the following definitions in the ```localsettings.py``` file:
+This container uses NetworkX to map the numerous connections between people and voyages.
 
-	STATIC_URL="static/"
-	VOYAGES_FRONTEND_BASE_URL="http://127.0.0.1:3000/"
-	OPEN_API_BASE_URL="http://127.0.0.1:8000/"
+Its development grew out of the fact that the database had to be restructured in order to efficiently represent the *many* many-to-many relations we get in connecting people to people, people to voyages, and peoples' relations to voyages. It was evident that this structural change lent itself to a different representation of the data, even internally. That said, we are not ready to move the full dataset to a graph db, given that voyages should probably stay in a traditional relational db for the foreseeable future.
 
-And the following in the ```settings.py``` file:
+Its default behavior is to receive an ID for one of its core object classes (an enslaved person, an enslaver, or a voyage), and to return the node with that ID, its neighbors out two hops, and the associated edges.
 
-	STATIC_ROOT='static'
-	site = FileBrowserSite(name='filebrowser')
-	site.storage.location = STATIC_ROOT
-	site.directory="uploads/"
-	site.storage.base_url = "/static/uploads"
-	site_storage_base_url = site.storage.base_url
+### Voyages-Geo-Networks
 
-### Media files use-case 1: the blog
+This container uses NetworkX to create essentially a routing system, and then runs every entity for each object class through that routing system, in order to cache, in Pandas, a large dataframe of the various edges and weights for each entity, so that these can be aggregated on, and splined appropriately based on the weights.
 
-The blog uses the FileBrowserSite mixin to allow our team to upload content (thumbnail images, content-embedded images, and pdfs linked to from the blog) and use it in blog posts. The settings.py variables discussed above require that the following path exists for those assets to be stored to: ```static/uploads```. Be careful, it's easy to end up with extra or missing slashes.
+----------
 
-### Media files use-case 2: IIIF manifests
+## View types
 
-The document viewer requires our own home-grown manifests. These are uploaded to an S3 bucket, which the frontend then references. The backend will generate these via a manage.py command, but as of june 11, that needs to be updated for this S3 approach.
+We currently have several more-and-less customized view types which have been, to the greatest extent practicable, applied across the different object classes and their corresponding routes.
 
-## Generating an API Key for the Flask Components
+### List views
 
-The Flask components of the app require an API key.
+Available for:
 
-Create a new Django superuser account through the CLI.
+* Voyages: {OPEN_API_BASE_URL}/voyage/
+* People
+	* Enslavers: {OPEN_API_BASE_URL}/past/enslaver/
+	* Enslaved People: {OPEN_API_BASE_URL}/past/enslaved/
+* Documents: {OPEN_API_BASE_URL}/docs/
+* Blog posts: {OPEN_API_BASE_URL}/blog/
 
-```bash
-local:~/Projects/voyages-api$ docker exec -it voyages-api bash -c 'python3 manage.py createsuperuser'
-```
+These are more or less use generic DRF views. Pagination and ordering are handled like so:
 
-Use those credentials to log in to the Django admin interface at
-[127.0.0.1:8000/admin/](127.0.0.1:8000/admin/) and create an API
-token for the account.
+	{
+		'results_page': [2],
+		'results_per_page': [12]
+	}
 
-Update the `src/stats/localsettings.py` and `src/networks/localsettings.py` files with
-the new token.
+Yes, I know, I need to get rid of the brackets.
 
-Restart the Flask component containers.
+### Dataframe views:
 
-```bash
-local:~/Projects/voyages-api$ docker restart voyages-geo-networks voyages-people-networks voyages-stats
-```
+Available for:
 
-## Cleanup
+* Voyages: {OPEN_API_BASE_URL}/voyage/dataframes/
+* Enslaved People: {OPEN_API_BASE_URL}/past/enslaved/dataframes/
 
-If you want to tear it down:
 
-```bash
-local:~/Projects/voyagesapi$ docker compose down
-local:~/Projects/voyagesapi$ docker container prune -f
-local:~/Projects/voyagesapi$ docker image prune -f
-local:~/Projects/voyagesapi$ docker volume prune -f
-local:~/Projects/voyagesapi$ docker network prune -f
-```
+#### Dataframe required args
 
-## Resources
+For this endpoint, you only need to specify which fields you want back, using the key ```selected_fields```.
 
-Note the following project resources:
+#### Dataframe sample request
 
-* Voyages API: [127.0.0.1:8000/](127.0.0.1:8000/)
-* API Stats Component: [http://127.0.0.1:5000](http://127.0.0.1:5000/)
-* API Geo Networks Component: [http://127.0.0.1:5005](http://127.0.0.1:5005/)
-* API People Networks Component: [http://127.0.0.1:5006](http://127.0.0.1:5006/)
-* Solr: [http://127.0.0.1:8983](http://127.0.0.1:8983)
-* Adminer: [http://127.0.0.1:8080](http://127.0.0.1:8080)
-* Redis: [http://127.0.0.1:6379](http://127.0.0.1:6379)
+You can get long, columnar presentations of data at the dataframe endpoints for voyages, enslaved, and enslavers. For these calls, use the "selected_fields" key:
 
-## Geo Networks
+	{
+		'selected_fields': [
+			'id',
+			'voyage_ship__ship_name',
+			'voyage_itinerary__imp_principal_place_of_slave_purchase__name',
+			'voyage_itinerary__imp_principal_port_slave_dis__name',
+			'voyage_dates__imp_arrival_at_port_of_dis_sparsedate__year'
+		]
+	}
 
-This container runs NetworkX and Pandas in order to build splined geographic sankey maps that are aggregated in a weighted manner on shared routes.
+And you will receive a dictionary whose keys are those variable names and whose values are arrays of equal length containing the corresponding data.
 
-When initialized for the first time, for voyages and people, at region and place levels (A total of 4 runs):
+### Statistics views
 
-* Creates a basic geographic network in NetworkX
-* Asks the voyages-api component for relevant geo data to flesh the map out
-* Then pulls the full itinerary for
-  * the class in question (voyages or people)
-  * at the resolution in question (regions or places)
-* For each of those entities
-  * It draws the full, splined path
-  * Stores the touched nodes and edges in a dataframe
-* At the end of each run, it
-  * Loads the full dataframe into memory
-  * And dumps the results to a pickle file under /tmp
+*N.B. This endpoint relies on the ```voyages-stats``` backend.*
 
-This can take 15 minutes. When initialized subsequently, it loads the pickles into memory in about 2 seconds.
+This backend is a supporting Flask container whose principal dependency is Pandas.
 
-## Adminer
+Available for:
 
-The Adminer container is provided as an optional way of working with the database.
+* Voyages:
+	* groupby for all standard data visualizations: {OPEN_API_BASE_URL}/voyage/groupby/
+	* crosstabs: {OPEN_API_BASE_URL}/voyage/crosstabs/
+	
+*Note on crosstabs*: it's is in need of some tweaking to enable pagination. Right now it returns the full [ag-grid crosstab table](https://www.ag-grid.com/javascript-data-grid/column-groups/) (up to 10MB)
 
-Visit [http://127.0.0.1:8080](http://127.0.0.1:8080) and log in with the following values.
+*Note on groupby*: it's intended to be used with plotly.js but could easily be used with other visualization packages.
 
-* Server: voyages-mysql
-* User: voyages
-* Password: voyages
-* Database: voyages-api
+This endpoint enables bar graphs, pie charts, histograms, and so on, by connecting with the ```voyages-stats``` container (see the ```stats``` folder in this repo). It is based on Pandas syntax.
 
-## Development Workflow
+Its workflow is to:
 
-This project follows a fork-and-pull workflow.
+* Apply your query filter (see notes above on our custom filters)
+* Retrieve *only the pk's* from the django queryset
+* Send those pk's and the required stats arguments to the ```voyages-stats``` backend
+* Receive and then return to the user the backend's response
 
-* The `rice-crc:voyages-api` repository is referred to as `upstream` and your fork as `origin`
-* The upstream/develop branch serves as the default change integration point between developers
-* A developer makes Pull Requests from their origin/working-branch to upstream/develop
+#### Statistics required args
 
-Keep the following in mind when contributing code.
+Required arguments for statistics requests:
 
-* Keep your fork up-to-date with the upstream repository
-* Always start new work with a new working branch
-* Periodically fetch and rebase the latest upstream/develop changes onto your local working-branch
-* Do not make Pull Requests containing untested or unfinished code unless intended for temporary review and discussion
-* Clean up the work in your local environment once a Pull Request has been accepted and merged
+* ```cachename``` (different caches for different viz's):
+	* ```voyage_summary_statistics```
+	* ```voyage_pivot_tables```
+	* ```voyage_bar_and_donut_charts```
+	* ```voyage_xyscatter```
+* Others:
+	* For ```voyage/groupby``` (see also [Pandas Groupby](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.groupby.html))
+		* ```groupby_by``` (rows)
+		* ```gropuby_cols``` (cols)
+		* ```agg_fn``` (aggregation function, like sum or mean)
+	* For ```voyage/crosstabs``` (see also [Pandas CrossTab](https://pandas.pydata.org/docs/reference/api/pandas.crosstab.html))
+		* ```rows```
+		* ```columns```
+		* ```value_field``` (field to aggregate on)
+		* ```agg_fn``` (aggregation function, like sum or mean)
+		* ```normalize``` (boolean)
+		* ```rows_label``` (label for the rows in the crosstabs table)
 
-Use the following git process to contribute work.
+#### Statistics sample request
 
-```bash
-git fetch upstream            # Pull the latest changes from upstream/develop
-git checkout -b <short-desc>  # and create a new working branch
+To retrieve a bargraph/donut chart-style mix of categorical and numerical variables, you would request, for instance,
 
-git fetch upstream            # Do work; before any commits, pull the latest
-git rebase upstream/develop   # changes from upstream/develop and rebase onto
-                              # your working branch
+* The name of the voyage's region of return (rows)
+* The modern tonnage of the ship (cols)
+* The aggregation function (sum)
+* The cache (```voyage_bar_and_donut_charts```)
 
-git add . && git commit       # Commit your changes to the working branch
-                              # Repeat pulling changes and adding commits until
-                              # your work is done
+Like so: 
 
-git push origin HEAD          # Push the working branch to your fork and make
-gh pr create --fill           # a Pull Request to upstream/develop
+	{
+		"groupby_by":["voyage_itinerary__region_of_return__name"],
+		"groupby_cols":["voyage_ship__tonnage_mod"],
+		"agg_fn":["sum"],
+		"cachename":["voyage_bar_and_donut_charts"]
+	}
 
-git checkout develop          # Once the PR is accepted and merged, delete
-git branch -D <short-desc>    # your working branch
+And would receive back a 2-key json object, whose keys were the two groupby variables:
 
-git pull                      # Pull the latest changes from upstream/develop
-git push                      # and update your fork by pushing to origin/develop
-```
+	{
+		"voyage_itinerary__region_of_return__name": [
+			"Antigua",
+			"Bahamas",
+			"Bahia",
+			"Barbados",
+			...
+		],
+		"voyage_ship__tonnage_mod": [
+			0.0,
+			95.0,
+			872.0,
+			389.5,
+			...
+		]
+	}
+
+### Maps views
+
+*N.B. This endpoint relies on the ```voyage-geo-networks``` backend.*
+
+This backend is a supporting Flask container whose principal dependencies are NetworkX and Pandas.
+
+Available for:
+
+* Voyages: {OPEN_API_BASE_URL}/voyage/aggroutes/
+* Enslaved people: {OPEN_API_BASE_URL}/enslaved/aggroutes/
+
+These requests are handed off to the voyages-geo-networks container.
+
+Its workflow is to:
+
+* Apply your query filter (see notes above on our custom filters)
+* Retrieve *only the pk's* from the django queryset
+* Send those pk's and the required mapping argument to the ```voyages-geo-networks``` backend
+* Receive and then return to the user the backend's response
+
+#### Maps required arg
+
+The only required arg for a map is ```zoomlevel```, which currently only has 2 acceptable values: ```place``` and ```region```. These values correspond to the legacy 3-tiered Voyages geographical schema of ```BroadRegion```, ```Region```, and ```Place```, which (basically) correspond to Continent, Country, and Port.
+
+#### Maps sample request
+
+If a person wanted to map all Trans-Atlantic voyages that are imputed to have landed in Barbados at the ```region``` level, they would request:
+
+	{
+		"zoomlevel": ["region"],
+		"dataset": [0],
+		"voyage_itinerary__imp_principal_region_slave_dis__name" : [
+			"Barbados"
+		]
+	}
+
+And would receive back a json object with 2 keys:
+
+* nodes
+	* Have ID's
+	* Nodes are multi-classed by weights, for size and styling
+		* origin
+		* embarkation
+		* disembarkation
+		* post-disembarkation
+	* Their data fields give
+		* the location's legacy spss code under 'val'
+		* the latitude and longitude
+* edges (connecting the nodes)
+	* control points to draw bezier curves
+	* source and target id's to be keyed against the nodes' id's
+	* weights
+	* classes/types, mostly used for styling
+
+For instance:
+
+	{
+		"edges": [
+			{
+				"controls": [
+					[
+						4.760084814385278,
+						9.244688671874998
+					],
+					[
+						4.760084814385278,
+						9.244688671874998
+					]
+				],
+				"source": "00173d1e-d25c-4190-a839-23da86cbd656",
+				"target": "9c9fa53a-8d58-400c-a199-4f2f02cf6e10",
+				"type": "origination",
+				"weight": 16
+			},
+			...
+		],
+		"nodes": [
+			{
+				"data": {
+					"lat": 5.4718,
+					"lon": 10.0545,
+					"name": "Yemba",
+					"uuid": "00173d1e-d25c-4190-a839-23da86cbd656"
+				},
+				"id": "00173d1e-d25c-4190-a839-23da86cbd656",
+				"weights": {
+					"disembarkation": 0,
+					"embarkation": 0,
+					"origin": 18,
+					"post-disembarkation": 0
+				}
+			},
+			...
+		]
+	}
+
+More than enough info. to draw a well-styled map!
+
+#### Network graph views
+
+*N.B. This endpoint relies on the ```voyage-people-networks``` backend.*
+
+This backend is a supporting Flask container whose principal dependency is NetworkX.
+
+Available for:
+
+* Voyages: {OPEN_API_BASE_URL}/voyage/networks/
+* Enslaved People and Enslavers: {OPEN_API_BASE_URL}/past/networks/
+
+These requests are handed off to the voyages-people-networks container.
+
+Its workflow is to:
+
+* Apply your query filter (see notes above on our custom filters)
+* Retrieve *only the pk's* from the django queryset
+* Send those pk's and the required mapping argument to the ```voyages-geo-networks``` backend
+* Receive and then return to the user the backend's response
+
+#### Networks required arg
+
+The only required arg for the network endpoints are the pk's for the entities you want to visualize the connections for.
+
+#### Maps sample request
+
+If a person wanted to see who Dee, aged 29 as recorded on voyage 2315 out of Trade Town, they would find the associated pk and request:
+
+	{
+		"enslaved":[3]
+	}
+
+The other entities are tagged as: ```enslaved```, ```enslavers```, ```voyages```, ```enslavement_relations```.
+
+And would receive back a json object with 2 keys:
+
+* nodes
+	* ID and UUID
+	* Other relevant metadata (differs between enslavers, enslaved, and voyages)
+* edges (connecting the nodes)
+	* Source ID
+	* Target ID
+	* Data (right now, just the role of the enslaver)
+
+For instance:
+
+	{
+		"edges": [
+			{
+				"data": {
+					"role_name": "Captain"
+				},
+				"source": "91a6bf76-1ac7-4c78-9523-c2a83ea6decf",
+				"target": "f81d98ab-69aa-44e7-b08d-7d020ddf9970"
+			},
+			{
+				"data": {},
+				"source": "91a6bf76-1ac7-4c78-9523-c2a83ea6decf",
+				"target": "a9c1989b-4a6a-4ca0-9e45-1c8a41c7cf30"
+			},
+			...
+		]
+		"nodes": [
+			{
+				"id": 1004292,
+				"node_class": "enslavers",
+				"principal_alias": "García, Juan",
+				"uuid": "f81d98ab-69aa-44e7-b08d-7d020ddf9970"
+			},
+			...
+			{
+				"age": 28,
+				"documented_name": "Dee",
+				"gender": 1,
+				"id": 3,
+				"node_class": "enslaved",
+				"uuid": "a9c1989b-4a6a-4ca0-9e45-1c8a41c7cf30"
+			},
+			...
+			{
+				"id": 2315,
+				"node_class": "voyages",
+				"uuid": "91a6bf76-1ac7-4c78-9523-c2a83ea6decf",
+				"voyage_dates__imp_arrival_at_port_of_dis_sparsedate__year": 1819,
+				"voyage_itinerary__imp_principal_place_of_slave_purchase__name": "Trade Town",
+				"voyage_itinerary__imp_principal_port_slave_dis__name": "Freetown",
+				"voyage_ship__ship_name": "Fabiana"
+			}
+		]
+	}
