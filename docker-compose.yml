@@ -126,20 +126,6 @@ services:
       dockerfile: "../../docker/geo-networks/Dockerfile"
     command: ${GEO_NETWORKS_CMD:-}
 
-  voyages-adminer:
-    image: "adminer:latest"
-    container_name: "voyages-adminer"
-    hostname: "voyages-adminer"
-    restart: "on-failure"
-    depends_on:
-      - "voyages-mysql"
-    ports:
-      - "127.0.0.1:8080:8080"
-    networks:
-      - "voyages"
-    environment:
-      ADMINER_DEFAULT_SERVER: "voyages-mysql"
-
 networks:
     voyages:
         driver: "bridge"
