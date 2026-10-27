@@ -14,13 +14,21 @@ from django.db.models import Prefetch
 from document.models import Source
 from common.s3_utils import *
 from voyages3.localsettings import VOYAGES_FRONTEND_BASE_URL
-import os
+from document.iiif import iiif_manifests_base_url, rewrite_aws_iiif_url
 
 # We special case these sources as they have issues with their IIIF Image
 # Service preventing us from creating manifests that point directly to the image
 # service, instead manifests from these sources will link directly to the image
 # files.
 _special_case_no_img_service = ['catalog.archives.gov']
+
+def frontend_entity_href(entity_path):
+	base_url = (VOYAGES_FRONTEND_BASE_URL or "/").strip()
+	path = entity_path.lstrip("/")
+	if base_url in ("", "/"):
+		return f"/{path}"
+	return f"{base_url.rstrip('/')}/{path}"
+
 
 def get_api_and_profile(img_info):
 
@@ -46,7 +54,7 @@ class Command(BaseCommand):
 		in the database that have page images attached to them."""
 
 	def add_arguments(self, parser):
-		parser.add_argument("--iiif-manifests-baseurl",default=iiif_manifests_baseurl)
+		parser.add_argument("--iiif-manifests-baseurl",default=iiif_manifests_base_url())
 		parser.add_argument("--skip-existing",default=True,
 							help="We are having timeout issues fetching remote manifests for repurposing. This serves as a basic checkpoint.")
 		parser.add_argument("--shortref", default=None,help="target only sources matching (icontains) this string.")
@@ -80,6 +88,8 @@ class Command(BaseCommand):
 		if shortref is not None:
 			sources=sources.filter(short_ref__name__icontains=shortref)
 		
+		iiif_manifests_baseurl = options['iiif_manifests_baseurl'].rstrip("/") + "/"
+
 		print(f"Found {sources.count()} sources with page images.")
 		
 		if options['skip_existing'] in [True,'true','True']:
@@ -127,6 +137,7 @@ class Command(BaseCommand):
 					# A canvas page.
 					host_addr,iiif_suffix = Command._extract_iiif_url(iiif_baseimage_url)
 					img_url_base = f"https://{host_addr}{iiif_suffix}"
+					emitted_img_url_base = rewrite_aws_iiif_url(img_url_base, public=True)
 					
 					error_count=0
 
@@ -166,7 +177,7 @@ class Command(BaseCommand):
 						break
 					thumb = [
 						{
-							"id": f"{img_url_base}/full/300,300/0/default.jpg",
+							"id": f"{emitted_img_url_base}/full/300,300/0/default.jpg",
 							"type": "Image",
 							"format": "image/jpeg"
 						}
@@ -182,7 +193,7 @@ class Command(BaseCommand):
 						h = int(round(h * max_len / max_dim))
 					img_size_urlparam = f"{w},{h}" if use_img_service else 'max'
 					canvas_body = {
-						"id": f"{img_url_base}/full/{img_size_urlparam}/0/default.jpg",
+						"id": f"{emitted_img_url_base}/full/{img_size_urlparam}/0/default.jpg",
 						"type": "Image",
 						"format": "image/jpeg",
 						"width": img_info['width'],
@@ -190,7 +201,7 @@ class Command(BaseCommand):
 					}
 					if use_img_service:
 						canvas_body['service'] = [{
-							"id": img_url_base,
+							"id": emitted_img_url_base,
 							"type": f"ImageService{api_version}",
 							"profile": profile_level
 						}]
@@ -251,7 +262,8 @@ class Command(BaseCommand):
 					}
 					for source_voyage in source_voyages:
 						voyage_id=source_voyage.voyage.voyage_id
-						link=f"<span><a href='{VOYAGES_FRONTEND_BASE_URL}voyage/{voyage_id}'>Voyage #{voyage_id}</a></span>"
+						voyage_href=frontend_entity_href(f"voyage/{voyage_id}")
+						link=f"<span><a href='{voyage_href}'>Voyage #{voyage_id}</a></span>"
 						voyage_links['value']['en'].append(link)
 					metadata.append(voyage_links)
 					
@@ -264,7 +276,8 @@ class Command(BaseCommand):
 					for source_enslaver in source_enslavers:
 						enslaver_id=source_enslaver.enslaver.id
 						enslaver_principal_alias=source_enslaver.enslaver.principal_alias
-						link=f"<span><a href='{VOYAGES_FRONTEND_BASE_URL}enslaver/{enslaver_id}'>{enslaver_principal_alias} #{enslaver_id}</a></span>"
+						enslaver_href=frontend_entity_href(f"enslavers/{enslaver_id}")
+						link=f"<span><a href='{enslaver_href}'>{enslaver_principal_alias} #{enslaver_id}</a></span>"
 						enslaver_links['value']['en'].append(link)
 					metadata.append(enslaver_links)
 				
@@ -277,7 +290,8 @@ class Command(BaseCommand):
 					for source_enslaved_person in source_enslaved_people:
 						enslaved_id=source_enslaved_person.enslaved.enslaved_id
 						enslaved_documented_name=source_enslaved_person.enslaved.documented_name
-						link=f"<span><a href='{VOYAGES_FRONTEND_BASE_URL}enslaved/{enslaved_id}'>{enslaved_documented_name} #{enslaved_id}</a></span>"
+						enslaved_href=frontend_entity_href(f"enslaved/{enslaved_id}")
+						link=f"<span><a href='{enslaved_href}'>{enslaved_documented_name} #{enslaved_id}</a></span>"
 						enslaved_links['value']['en'].append(link)
 					metadata.append(enslaved_links)
 				

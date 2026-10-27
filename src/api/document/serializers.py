@@ -1,3 +1,4 @@
+from common.filter_fields import FilterValueField
 from rest_framework import serializers
 from rest_framework.fields import SerializerMethodField,IntegerField,CharField,Field
 import re
@@ -9,6 +10,7 @@ from common.static.Source_options import Source_options
 from voyage.models import VoyageShip
 from common.autocomplete_indices import get_all_model_autocomplete_fields
 from drf_spectacular.utils import extend_schema_field
+from .iiif import rewrite_aws_iiif_url
 
 
 class SourceTypeSerializer(serializers.ModelSerializer):
@@ -81,9 +83,12 @@ class SourceEnslaverConnectionSerializer(serializers.ModelSerializer):
 		fields='__all__'
 
 class PageSerializer(serializers.ModelSerializer):
+	iiif_baseimage_url = SerializerMethodField()
 	class Meta:
 		model=Page
-		fields='__all__'			
+		fields='__all__'
+	def get_iiif_baseimage_url(self,obj):
+		return rewrite_aws_iiif_url(obj.iiif_baseimage_url)
 
 class SourcePageConnectionSerializer(serializers.ModelSerializer):
 	page=PageSerializer(many=False,read_only=True)
@@ -111,12 +116,15 @@ class SourceResponseSerializer(serializers.ModelSerializer):
 	source_type=SourceTypeSerializer(many=False,read_only=True)
 	short_ref=SourceShortRefSerializer(many=False,allow_null=False,read_only=True)
 	date=DocSparseDateSerializer(many=False,allow_null=True,read_only=True)
+	thumbnail=SerializerMethodField()
 	text_snippet=SerializerMethodField()
 	enslavers_count=SerializerMethodField()
 	named_enslaved_count=SerializerMethodField()
 	class Meta:
 		model=Source
 		fields=['zotero_group_id','zotero_item_id','bib','thumbnail','source_type','short_ref','date','iiif_manifest_url','text_snippet','enslavers_count','named_enslaved_count']
+	def get_thumbnail(self,obj) -> serializers.CharField:
+		return rewrite_aws_iiif_url(obj.thumbnail)
 	def get_text_snippet(self,obj) -> serializers.CharField:
 		if obj.page_connections.all().first():
 			first_transcription=obj.page_connections.all().first().page.transcriptions.all().first()
@@ -141,18 +149,9 @@ class SourceResponseSerializer(serializers.ModelSerializer):
 
 ############ REQUEST FIILTER OBJECTS
 class SourceFilterItemSerializer(serializers.Serializer):
-	@extend_schema_field({
-		'oneOf': [
-			{'type': 'string'},
-			{'type': 'integer'},
-			{'type': 'array'}
-		]
-	})
-	def get_searchTerm(self, obj):
-		return obj.searchTerm
 	op=serializers.ChoiceField(choices=["in","gte","lte","exact","icontains","btw","andlist"])
 	varName=serializers.ChoiceField(choices=[k for k in Source_options])
-	searchTerm=serializers.SerializerMethodField(method_name='get_searchTerm',read_only=False)
+	searchTerm=FilterValueField()
 
 @extend_schema_serializer(
 	examples = [

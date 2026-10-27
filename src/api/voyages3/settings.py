@@ -9,6 +9,8 @@ https://docs.djangoproject.com/en/3.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/3.2/ref/settings/
 """
+import os
+
 from .localsettings import *
 
 from pathlib import Path
@@ -52,6 +54,11 @@ INSTALLED_APPS = [
     'nested_admin',
     'drf_spectacular'
 ]
+
+ENABLE_PROMETHEUS_METRICS = (
+    os.environ.get("ENABLE_PROMETHEUS_METRICS", "true").lower()
+    in ("1", "true", "yes")
+)
 
 #the below are defined in localsettings.
 #i couldn't figure out how to make the .pg_pass file work in docker
@@ -103,6 +110,12 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware'
 ]
+
+if ENABLE_PROMETHEUS_METRICS:
+    MIDDLEWARE = [
+        'voyages3.prometheus.PrometheusMiddleware',
+        *MIDDLEWARE,
+    ]
 
 CORS_ALLOW_ALL_ORIGINS=True
 

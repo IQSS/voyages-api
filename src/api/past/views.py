@@ -35,6 +35,20 @@ from django.core.management import call_command
 
 redis_cache = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
 
+# Bump whenever EnslavedListResponseSerializer's output schema changes.
+ENSLAVED_LIST_RESPONSE_SCHEMA_VERSION="past-enslaved-list-v2"
+
+
+def enslaved_list_cache_key(request_name,request_data):
+	hashdict={
+		'req_name':request_name,
+		'req_data':request_data,
+		'response_schema_version':ENSLAVED_LIST_RESPONSE_SCHEMA_VERSION
+	}
+	return hashlib.sha256(
+		json.dumps(hashdict,sort_keys=True,indent=1).encode('utf-8')
+	).hexdigest()
+
 
 class EnslavedList(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]
@@ -61,11 +75,7 @@ class EnslavedList(generics.GenericAPIView):
 		#AND ATTEMPT TO RETRIEVE A REDIS-CACHED RESPONSE
 		if USE_REDIS_CACHE:
 			srd=serialized_req.data
-			hashdict={
-				'req_name':str(self.request),
-				'req_data':srd
-			}
-			hashed=hashlib.sha256(json.dumps(hashdict,sort_keys=True,indent=1).encode('utf-8')).hexdigest()
+			hashed=enslaved_list_cache_key(str(self.request),srd)
 			cached_response = redis_cache.get(hashed)
 		else:
 			cached_response=None

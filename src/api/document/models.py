@@ -3,7 +3,7 @@ import re
 from voyage.models import Voyage
 from past.models import Enslaved,EnslaverIdentity,EnslavementRelation
 from common.models import NamedModelAbstractBase,SparseDateAbstractBase
-from voyages3.localsettings import STATIC_URL,OPEN_API_BASE_URL,OPEN_API_BASE_URL
+from .iiif import build_manifest_url, rewrite_aws_iiif_url
 
 class DocSparseDate(SparseDateAbstractBase):
 	pass
@@ -72,11 +72,12 @@ class Page(models.Model):
 			return nonnulls[0]
 	@property
 	def square_thumbnail(self):
-		if self.iiif_baseimage_url not in (None,""):
+		iiif_baseimage_url = rewrite_aws_iiif_url(self.iiif_baseimage_url)
+		if iiif_baseimage_url not in (None,""):
 # 			square_thumbnail=re.sub("/full/max/","/square/200,200/",self.iiif_baseimage_url)
 			#michigan's test server can't handle square requests
 			iiif_endpoint_patterns="(/full/max/)|(/full/full/)"
-			square_thumbnail=re.sub(iiif_endpoint_patterns,"/full/200,/",self.iiif_baseimage_url)
+			square_thumbnail=re.sub(iiif_endpoint_patterns,"/full/200,/",iiif_baseimage_url)
 			return square_thumbnail
 		else:
 			return None
@@ -351,6 +352,6 @@ class Source(models.Model):
 	@property
 	def iiif_manifest_url(self):
 		if self.has_published_manifest and self.zotero_group_id and self.zotero_item_id is not None:
-			return(f'{OPEN_API_BASE_URL}{STATIC_URL}{self.zotero_group_id}__{self.zotero_item_id}.json')
+			return build_manifest_url(f"{self.zotero_group_id}__{self.zotero_item_id}.json")
 		else:
 			return None
