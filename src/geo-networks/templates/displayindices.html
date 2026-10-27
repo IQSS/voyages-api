@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<table border="1px">
+<tr>
+	<th>index name</th>
+	<th>pickle exists?</th>
+	<th>command</th>
+</tr>
+{% for index in indices %}
+	<tr>
+		{% for item in index %}
+			<td>{{item}}</td>
+		{% endfor %}
+		<td><a href="/rebuild_indices/{{index[0]}}">DESTROY AND REBUILD</a></td>
+	</tr>
+{% endfor %}
+</table>
+</html>

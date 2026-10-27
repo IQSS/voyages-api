@@ -1,0 +1,2 @@
+DJANGO_BASE_URL="http://voyages-api:8000/"
+DJANGO_AUTH_KEY="Token ABCDEFG"
