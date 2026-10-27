@@ -179,7 +179,7 @@ class EnslavedSerializer(serializers.ModelSerializer):
 				month=date.month
 				day=date.day
 			else:
-				yearam="year unknown"
+				yearam=None
 				month=None
 				day=None
 			try:

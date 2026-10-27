@@ -1,0 +1,197 @@
+{
+  "generatedBy": "@slavevoyages/voyages-contribute@0.6.3",
+  "newEntityTempIds": [
+    "fixture_voyage_1"
+  ],
+  "seed": [
+    {
+      "table": "voyage_voyagegroupings",
+      "pk": 1,
+      "fields": {
+        "name": "Fixture grouping",
+        "value": 1
+      }
+    },
+    {
+      "table": "voyage_voyagegroupings",
+      "pk": 2,
+      "fields": {
+        "name": "Fixture grouping two",
+        "value": 2
+      }
+    },
+    {
+      "table": "voyage_cargotype",
+      "pk": 1,
+      "fields": {
+        "name": "Fixture cargo"
+      }
+    },
+    {
+      "table": "document_shortref",
+      "pk": 1,
+      "fields": {
+        "name": "FIXTURE REF 1"
+      }
+    }
+  ],
+  "steps": [
+    {
+      "name": "create a voyage with a grouping, cargo and a dated source",
+      "changeset": {
+        "deletions": [],
+        "updates": [
+          {
+            "type": "update",
+            "entityRef": {
+              "id": "fixture_voyage_1",
+              "schema": "Voyage",
+              "type": "new"
+            },
+            "changes": [
+              {
+                "kind": "direct",
+                "property": "voyage_id",
+                "changed": 900001
+              },
+              {
+                "kind": "direct",
+                "property": "dataset",
+                "changed": 0
+              },
+              {
+                "kind": "direct",
+                "property": "voyage_groupings",
+                "changed": 1,
+                "isForeignKey": true
+              }
+            ]
+          },
+          {
+            "type": "update",
+            "entityRef": {
+              "id": "fixture_srcconn_1",
+              "schema": "Voyage Source Connection",
+              "type": "new"
+            },
+            "changes": [
+              {
+                "kind": "direct",
+                "property": "page_range",
+                "changed": "12-14"
+              },
+              {
+                "kind": "direct",
+                "property": "voyage_id",
+                "changed": "fixture_voyage_1",
+                "isForeignKey": true
+              },
+              {
+                "kind": "direct",
+                "property": "source_id",
+                "changed": "fixture_source_1",
+                "isForeignKey": true
+              }
+            ]
+          },
+          {
+            "type": "update",
+            "entityRef": {
+              "id": "fixture_cargo_1",
+              "schema": "VoyageCargoConnectionSchema",
+              "type": "new"
+            },
+            "changes": [
+              {
+                "kind": "direct",
+                "property": "amount",
+                "changed": 7
+              },
+              {
+                "kind": "direct",
+                "property": "voyage_id",
+                "changed": "fixture_voyage_1",
+                "isForeignKey": true
+              },
+              {
+                "kind": "direct",
+                "property": "cargo_id",
+                "changed": 1,
+                "isForeignKey": true
+              }
+            ]
+          },
+          {
+            "type": "update",
+            "entityRef": {
+              "id": "fixture_source_1",
+              "schema": "Voyage Source",
+              "type": "new"
+            },
+            "changes": [
+              {
+                "kind": "direct",
+                "property": "title",
+                "changed": "Fixture source"
+              },
+              {
+                "kind": "direct",
+                "property": "short_ref_id",
+                "changed": 1,
+                "isForeignKey": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "edit the published voyage",
+      "changeset": {
+        "deletions": [],
+        "updates": [
+          {
+            "type": "update",
+            "entityRef": {
+              "type": "existing",
+              "schema": "Voyage",
+              "id": "fixture_voyage_1"
+            },
+            "changes": [
+              {
+                "kind": "direct",
+                "property": "voyage_groupings",
+                "changed": 2,
+                "isForeignKey": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "clear the grouping",
+      "changeset": {
+        "deletions": [],
+        "updates": [
+          {
+            "type": "update",
+            "entityRef": {
+              "type": "existing",
+              "schema": "Voyage",
+              "id": "fixture_voyage_1"
+            },
+            "changes": [
+              {
+                "kind": "direct",
+                "property": "voyage_groupings",
+                "changed": null,
+                "isForeignKey": true
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

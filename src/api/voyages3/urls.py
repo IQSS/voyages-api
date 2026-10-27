@@ -38,6 +38,7 @@ urlpatterns = [
     path('blog/',include('blog.urls')),
     path('common/',include('common.urls')),
     path('captcha/', include('captcha.urls')),
+    path('contrib/', include('contrib.urls')),
     path('filebrowser/', site.urls),
     path('tinymce/', site.urls),
 	re_path(r'^_nested_admin/', include('nested_admin.urls')),
