@@ -13,7 +13,6 @@ from common.static.Institution_options import Institution_options
 from common.autocomplete_indices import get_all_model_autocomplete_fields
 import re
 from voyages3.settings import site_storage_base_url
-from voyages3.localsettings import OPEN_API_BASE_URL
 
 class AuthorInstitutionSerializer(serializers.ModelSerializer):
 	class Meta:
@@ -44,8 +43,7 @@ def media_uploads_sub(html):
 		an image in the blog post at the front-end site, naturally, rather than here. we
 		rewrite the html before returning it (until i can find a better system).
 	'''
-	site_storage_base_url_no_leading_slash=re.sub("^/","",site_storage_base_url)
-	media_uploads_baseurl=f"{OPEN_API_BASE_URL}{site_storage_base_url_no_leading_slash}"
+	media_uploads_baseurl=site_storage_base_url
 	clean_html=re.sub(f"(?<=src=\").*?{site_storage_base_url}",media_uploads_baseurl,html)
 	clean_html=re.sub(f"(?<=href=\").*?{site_storage_base_url}",media_uploads_baseurl,clean_html)
 	return clean_html

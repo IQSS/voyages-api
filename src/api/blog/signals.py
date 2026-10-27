@@ -14,6 +14,13 @@ from django.db import transaction
 
 
 SOURCE_LANGUAGE = "en"
+TRANSLATION_MAX_CHARS = 20000
+TRANSLATION_BLOCK_BOUNDARIES = (
+    "</p>", "</div>", "</li>", "</tr>", "</section>",
+    "<br>", "<br/>", "<br />", "\n\n",
+)
+
+
 
 def on_transaction_commit(func):
     def inner(*args, **kwargs):
@@ -65,6 +72,59 @@ def post_saved(sender, instance, **kwargs):
                 
     
 
+def _last_safe_translation_boundary(text, start, limit):
+    in_tag = False
+    quote = None
+    last_boundary = 0
+
+    for index in range(start, limit):
+        char = text[index]
+        if in_tag:
+            if quote is not None:
+                if char == quote:
+                    quote = None
+            elif char in ("'", '"'):
+                quote = char
+            elif char == ">":
+                in_tag = False
+            continue
+
+        if char == "<":
+            in_tag = True
+        elif char.isspace():
+            last_boundary = index + 1
+
+    return last_boundary
+
+
+def _translation_chunks(text, max_chars=TRANSLATION_MAX_CHARS):
+    if max_chars <= 0:
+        raise ValueError("max_chars must be positive")
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks = []
+    offset = 0
+    while len(text) - offset > max_chars:
+        limit = offset + max_chars
+        split_at = 0
+        for marker in TRANSLATION_BLOCK_BOUNDARIES:
+            position = text.rfind(marker, offset, limit)
+            if position >= offset:
+                split_at = max(split_at, position + len(marker))
+
+        if split_at <= offset:
+            split_at = _last_safe_translation_boundary(text, offset, limit)
+        if split_at <= offset:
+            split_at = limit
+
+        chunks.append(text[offset:split_at])
+        offset = split_at
+
+    chunks.append(text[offset:])
+    return chunks
+
+
 def translate_text(target, text):
     """Translates text into the target language.
 
@@ -74,21 +134,15 @@ def translate_text(target, text):
     
     from google.cloud import translate_v2 as translate
     
-    translate_client = translate.Client.from_service_account_json(r"voyages3/google_auth.json")
-
-    #translate_client = translate.Client()
-
-
     if isinstance(text, bytes):
     	text = text.decode("utf-8")
-    
 
-    
-    # Text can also be a sequence of strings, in which case this method
-    # will return a sequence of results for each text.
-    #result = translate_client.translate(text, target_language=target)
-    result = translate_client.translate(text, target_language=target)
+    translate_client = translate.Client.from_service_account_json(
+        r"voyages3/google_auth.json"
+    )
 
-   
-
-    return result["translatedText"]
+    translated_chunks = []
+    for chunk in _translation_chunks(text):
+        result = translate_client.translate(chunk, target_language=target)
+        translated_chunks.append(result["translatedText"])
+    return "".join(translated_chunks)

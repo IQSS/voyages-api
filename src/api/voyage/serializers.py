@@ -1,3 +1,4 @@
+from common.filter_fields import FilterValueField
 from rest_framework import serializers
 from rest_framework.fields import SerializerMethodField,IntegerField,CharField,Field,ListField
 import re
@@ -393,15 +394,6 @@ class AnyField(Field):
 
 ############ REQUEST FIILTER OBJECTS
 class VoyageBasicFilterItemSerializer(serializers.Serializer):
-	@extend_schema_field({
-		'oneOf': [
-			{'type': 'string'},
-			{'type': 'integer'},
-			{'type': 'array'}
-		]
-	})
-	def get_searchTerm(self, obj):
-		return obj.searchTerm
 	op=serializers.ChoiceField(choices=["in","gte","lte","exact","icontains","btw","andlist"])
 	##It's rather costly for our filter requests like autocomplete and geotree to themselves "cross-filter" on too many nested variables
 	##At the same time, some cross-filters are essential to build the menus properly
@@ -409,19 +401,10 @@ class VoyageBasicFilterItemSerializer(serializers.Serializer):
 		choices=VoyageBasicFilterVarNames,
 		help_text="The dataset field is an integer. Refer to `dataset_map` to understand their meanings."
 	)
-	searchTerm=serializers.SerializerMethodField(method_name='get_searchTerm',read_only=False)
+	searchTerm=FilterValueField()
 
 
 class VoyageFilterItemSerializer(serializers.Serializer):
-	@extend_schema_field({
-		'oneOf': [
-			{'type': 'string'},
-			{'type': 'integer'},
-			{'type': 'array'}
-		]
-	})
-	def get_searchTerm(self, obj):
-		return obj.searchTerm
 	
 	op=serializers.ChoiceField(choices=["in","gte","lte","exact","icontains","btw","andlist"])
 	varName=serializers.ChoiceField(
@@ -430,7 +413,7 @@ class VoyageFilterItemSerializer(serializers.Serializer):
 		]+["EnslaverNameAndRole"],
 		help_text="dataset 0 is trans-atlantic. dataset 1 is intra-american."
 	)
-	searchTerm=serializers.SerializerMethodField(method_name='get_searchTerm',read_only=False)
+	searchTerm=FilterValueField()
 
 ########### PAGINATED VOYAGE LISTS 
 @extend_schema_serializer(

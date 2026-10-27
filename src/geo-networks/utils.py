@@ -128,7 +128,6 @@ def add_non_oceanic_nodes(G,endpoint,graph_params,filter_obj,init_node_id=0):
 			for f in filter_obj:
 				payload['filter'][f]=filter_obj[f]
 			
-			print(headers,payload)
 			## MAKE A DATAFRAME CALL ON ALL THE VARIABLES ENUMERATED FOR THIS NODE
 			r=requests.post(
 				url=DJANGO_BASE_URL+endpoint,

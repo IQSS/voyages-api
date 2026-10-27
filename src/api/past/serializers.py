@@ -1,3 +1,4 @@
+from common.filter_fields import FilterValueField
 from rest_framework import serializers
 from rest_framework.fields import SerializerMethodField,IntegerField,CharField,Field,ListField
 import re
@@ -87,6 +88,7 @@ class PastVoyageOutcomesSerializer(serializers.Serializer):
 
 class PastEnslavedVoyageSerializer(serializers.Serializer):
 	id=serializers.IntegerField(required=False)
+	voyage_id=serializers.IntegerField(required=False,allow_null=True)
 	embarkation=serializers.CharField(required=False)
 	disembarkation=serializers.CharField(required=False)
 	year=serializers.IntegerField(required=False)
@@ -97,6 +99,7 @@ class PastEnslavedVoyageSerializer(serializers.Serializer):
 	class Meta:
 		fields=[
 			'id',
+			'voyage_id',
 			'embarkation',
 			'disembarkation',
 			'year',
@@ -191,8 +194,10 @@ class EnslavedSerializer(serializers.ModelSerializer):
 			else:
 				particular_outcome=particular_outcome.name
 			v_id=v.id
+			v_voyage_id=v.voyage_id
 		else:
 			v_id=None
+			v_voyage_id=None
 			embark=None
 			disembark=None
 			yearam=None
@@ -203,6 +208,7 @@ class EnslavedSerializer(serializers.ModelSerializer):
 		
 		voyagedict={
 			'id':v_id,
+			'voyage_id':v_voyage_id,
 			'embarkation':embark,
 			'disembarkation':disembark,
 			'year':yearam,
@@ -411,54 +417,27 @@ class EnslaverIdentitySerializer(serializers.ModelSerializer):
 
 ############ REQUEST FIILTER OBJECTS
 class EnslaverFilterItemSerializer(serializers.Serializer):
-	@extend_schema_field({
-		'oneOf': [
-			{'type': 'string'},
-			{'type': 'integer'},
-			{'type': 'array'}
-		]
-	})
-	def get_searchTerm(self, obj):
-		return obj.searchTerm
 	op=serializers.ChoiceField(choices=["in","gte","lte","exact","icontains","btw","andlist"])
 	varName=serializers.ChoiceField(choices=[
 		k for k in EnslaverIdentity_options
 	])
-	searchTerm=serializers.SerializerMethodField(method_name='get_searchTerm')
+	searchTerm=FilterValueField()
 
 class EnslavedFilterItemSerializer(serializers.Serializer):
-	@extend_schema_field({
-		'oneOf': [
-			{'type': 'string'},
-			{'type': 'integer'},
-			{'type': 'array'}
-		]
-	})
-	def get_searchTerm(self, obj):
-		return obj.searchTerm
 		
 	op=serializers.ChoiceField(choices=["in","gte","lte","exact","icontains","btw","andlist"])
 	varName=serializers.ChoiceField(choices=[
 		k for k in Enslaved_options
 	])
-	searchTerm=serializers.SerializerMethodField(method_name='get_searchTerm')
+	searchTerm=FilterValueField()
 
 class EnslavementRelationFilterItemSerializer(serializers.Serializer):
-	@extend_schema_field({
-		'oneOf': [
-			{'type': 'string'},
-			{'type': 'integer'},
-			{'type': 'array'}
-		]
-	})
-	def get_searchTerm(self, obj):
-		return obj.searchTerm
 
 	op=serializers.ChoiceField(choices=["in","gte","lte","exact","icontains","btw","andlist"])
 	varName=serializers.ChoiceField(choices=[
 		k for k in EnslavementRelation_options
 	])
-	searchTerm=serializers.SerializerMethodField(method_name='get_searchTerm')
+	searchTerm=FilterValueField()
 
 
 

@@ -45,14 +45,32 @@ def index_roles(enslaver_roles_values_list):
 		if c%1000==0:
 			print(c)
 
+def get_batches(worklist,worker_count):
+	if worker_count < 1:
+		raise ValueError("worker_count must be positive")
+	if not worklist:
+		return []
+	batch_count=min(worker_count,len(worklist))
+	base_size,remainder=divmod(len(worklist),batch_count)
+	batches=[]
+	start=0
+	for index in range(batch_count):
+		batch_size=base_size+(1 if index < remainder else 0)
+		stop=start+batch_size
+		batches.append(worklist[start:stop])
+		start=stop
+	return batches
+
+
 def purge_m2m_fields(enslaver_ids):
 	print("enslaver identities",len(enslaver_ids))
 	c=0
 	for e_id in enslaver_ids:
 		e=EnslaverIdentity.objects.get(id=e_id)
+		# Related-manager clear() persists directly. Saving the otherwise
+		# unchanged identity would only advance its auto_now last_updated field.
 		e.roles.clear()
 		e.voyages.clear()
-		e.save()
 		c+=1
 		if c%1000==0:
 			print(c)
@@ -62,27 +80,7 @@ def purge_m2m_fields(enslaver_ids):
 class Command(BaseCommand):
 	help = 'connects enslavers directly to voyages and roles for faster searching'
 	def handle(self, *args, **options):
-		
-		rebuilder_number_of_workers=os.cpu_count()
-		
-		def get_batches(worklist,rebuilder_number_of_workers):
-			batch_size=int(len(worklist)/rebuilder_number_of_workers)
-			
-			print("BATCH SIZE",batch_size)
-			batches=[]
-			
-			for i in range(rebuilder_number_of_workers):
-				
-				a=i*batch_size
-				b=(i+1)*(batch_size)-1
-				
-				print("THIS BATCH INDICES",a,b)
-				if i!=rebuilder_number_of_workers-1:
-					batch=worklist[a:b]
-				else:
-					batch=worklist[a:]
-				batches.append(batch)
-			return batches
+		rebuilder_number_of_workers=max(1,os.cpu_count() or 1)
 		
 		enslaverIdentities=EnslaverIdentity.objects.all()
 		

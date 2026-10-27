@@ -1,5 +1,5 @@
 import time
-from flask import Flask,jsonify,request,abort
+from flask import Flask,jsonify,request,abort,g,Response
 import pandas as pd
 import numpy as np
 import json
@@ -9,9 +9,44 @@ from localsettings import *
 from index_vars import *
 import re
 from io import BytesIO
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
+
+REQUEST_COUNT = Counter(
+	'sv_http_requests_total',
+	'Total HTTP requests handled by Slave Voyages services.',
+	['service', 'framework', 'endpoint', 'method', 'status']
+)
+REQUEST_LATENCY = Histogram(
+	'sv_http_request_duration_seconds',
+	'HTTP request latency for Slave Voyages services.',
+	['service', 'framework', 'endpoint', 'method'],
+	buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
+)
+
+@app.before_request
+def _start_request_timer():
+	g._prometheus_started_at = time.perf_counter()
+
+
+@app.after_request
+def _record_request_metrics(response):
+	started_at = getattr(g, '_prometheus_started_at', None)
+	if started_at is None:
+		return response
+	endpoint = request.url_rule.rule if request.url_rule is not None else request.path
+	method = request.method.upper()
+	status = str(getattr(response, 'status_code', 500))
+	REQUEST_COUNT.labels('voyages-stats', 'flask', endpoint, method, status).inc()
+	REQUEST_LATENCY.labels('voyages-stats', 'flask', endpoint, method).observe(time.perf_counter() - started_at)
+	return response
+
+
+@app.route('/metrics')
+def metrics():
+	return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
 def re_cleanup(re_dict,val):
 	if val is not None:
@@ -31,7 +66,6 @@ def load_long_df(endpoint,variables):
 		listval=[]
 		if variables[v]['type']=="obj":
 			listval_vars[v]=variables[v]
-# 			del(variables[v])
 	r=requests.post(
 		url=DJANGO_BASE_URL+endpoint,
 		headers=headers,
@@ -81,13 +115,15 @@ def load_long_df(endpoint,variables):
 		jkeys=list(j.keys())
 		for i in range(len(j[jkeys[0]])):
 			idnum=j[jkeys[0]][i]
-			if cleanup:
-				itemvals=[re_cleanup(cleanup,j[k][i]) for k in jkeys[1:]]
-			else:
-				itemvals=[j[k][i] if j[k][i] is not None else "" for k in jkeys[1:]]
-				
+			itemvals=[
+				re_cleanup(cleanup,j[k][i]) if cleanup else j[k][i]
+				for k in jkeys[1:]
+			]
 			if itemvals:
-				item=fieldjoin.join([str(i) for i in itemvals])
+				item=fieldjoin.join([
+					"" if itemval is None else str(itemval)
+					for itemval in itemvals
+				])
 				if idnum in rollup:
 					rollup[idnum].append(item)
 				else:
@@ -105,6 +141,13 @@ registered_caches=[
 	big_df,
 	estimate_pivot_tables,
 	timelapse
+]
+
+replaced_dfs=[
+	"voyage_bar_and_donut_charts",
+	"voyage_summary_statistics",
+	"voyage_pivot_tables",
+	"voyage_xyscatter"
 ]
 
 #on initialization, load every index as a dataframe, via a call to the django api
@@ -127,26 +170,27 @@ while True:
 		#via an options call to the django server
 		#because this will allow us to coerce the propert data types (numeric or categorical)
 		#in order to make the math work out properly later!
-		try:
-			rc['options']=variables
-			thisdf=load_long_df(endpoint,variables)
-			#timelapse needs is na entries filled ahead of time
-			if rcname=='timelapse':
-				for varName in variables:
-					vartype=variables[varName]['type']	
-					if vartype in [
-						"int",
-						"pct"
-					]:
-						thisdf[varName]=thisdf[varName].fillna(0)
-						thisdf[varName]=thisdf[varName].astype('int')
-					else:
-						thisdf[varName]=thisdf[varName].fillna('')
-			#periods cause problems
-			rc['df']=thisdf
-		except:
-			failures_count+=1
-			print("failed on cache:",rcname)
+# 		try:
+		rc['options']=variables
+		thisdf=load_long_df(endpoint,variables)
+		#timelapse needs is na entries filled ahead of time
+		if rcname=='timelapse':
+			for varName in variables:
+				vartype=variables[varName]['type']
+				if vartype in [
+					"int",
+					"pct"
+				]:
+					thisdf[varName]=thisdf[varName].fillna(0)
+					thisdf[varName]=thisdf[varName].astype('int')
+				else:
+					thisdf[varName]=thisdf[varName].fillna('')
+		#periods cause problems
+		rc['df']=thisdf
+		print(rc['df'])
+# 		except:
+# 			failures_count+=1
+# 			print("failed on cache:",rcname)
 	print("failed on %d of %d caches" %(failures_count,len(registered_caches)))
 	if failures_count==len(registered_caches):
 		standoff_time=standoff_base**standoff_count
@@ -569,7 +613,10 @@ def estimates_pivot():
 			pv=pv.rename_axis(None,axis=0)
 		elif len(pv.index.names)==2:
 			pv=pv.rename_axis((None,None),axis=0)
+# 		pv=pv.rename_axis(None,axis=0)
 
+# 		pv=pv.fillna(0)
+# 		pv=pv.style.format("{:,.0f}")
 		if mode=='html':
 			s=pv.style.format(precision=0, na_rep='0', thousands=",")
 			s=s.set_table_styles(
@@ -592,6 +639,9 @@ def estimates_pivot():
 		elif mode=='csv':
 			data=pv.to_csv()
 		
+# 		pv.index.name=''
+		#index names = false fails after the numeric formatting....?
+# 		html=re.sub('\\n\s+','',html)
 
 	#WE NEED TO SEND BACK THE RESPONSE AS A CSV, PROBABLY USING THIS: django.http.response.FileResponse
 	return json.dumps(
@@ -722,9 +772,13 @@ def crosstabs():
 	if binsize is not None:
 # 		print("ROWS",rows)
 		binrows=rows
+# 		print(binrows)
+# 		print(df)
 
 		binsize=int(binsize)
+# 		print(df)
 		df=df.fillna(0)
+# 		df=df.dropna(subset=[rows,val])
 		df[binrows]=df[binrows].astype('int')
 		df=df[~df[binrows].isin([0])]
 		binvar_min=df[binrows].min()
@@ -788,6 +842,7 @@ def crosstabs():
 		mlctuples=list(ct.columns)
 	
 # 	print("TABLE TUPLES",mlctuples)
+#
 # 	print(order_by_list,type(order_by_list),type(order_by_list)==tuple)
 		
 	if order_by is not None:
@@ -806,6 +861,7 @@ def crosstabs():
 				if key[0]=='All':
 					key='All'
 				else:
+# 					key=re.sub('\.','','__'.join(key))
 					key='__'.join([
 						i if type(i)!=int else "Undefined" for i in key
 					])
@@ -817,11 +873,16 @@ def crosstabs():
 				"headerName":name,
 				"field":key,
 				"dtype":valuetype
+# 				"filter": 'agNumberColumnFilter',
+# 				"sort": 'desc'
 			}
 			
 			if dtype is not None:
 				child['dtype']=dtype
 			
+# 			if ascending:
+# 				child['sort']='asc'
+
 			if key=='All':
 				child['pinned']='right'
 		else:
@@ -891,6 +952,7 @@ def crosstabs():
 	output_records=[]
 	##N.B. "All" is a reserved column name here, for the margins/totals
 	### IN OTHER WORDS, NO VALUE FOR A COLUMN IN THE DF CAN BE "ALL"
+# 	allcolumns=[re.sub('\.','',"__".join(c)) if c[0]!='All' else 'All' for c in mlctuples]
 	allcolumns=["__".join([i if type(i)!=int else "Undefined" for i in c]) if c[0]!='All' else 'All' for c in mlctuples]
 	allcolumns.insert(0,indexcol_name)
 	ct=ct.fillna(0)
@@ -938,10 +1000,19 @@ def crosstabs():
 		return output
 	
 	ct_records=ct.to_records()
-	
+#
+# 	for output_record in output_records:
+# 		print(allcolumns[0],output_record[allcolumns[0]])
+# 		if output_record[allcolumns[0]]=="All":
+# 			output_records.remove(output_record)
+# 			marginrow=output_record
+#
+#
 	indexkey=allcolumns[0]
 	for r in range(len(ct_records)):
+# 	ct_records[start:end]:
 		row=ct_records[r]
+# 		print(row)
 		for i in range(len(row)):
 			if i==0:
 				thisrecord={
@@ -971,6 +1042,13 @@ def crosstabs():
 	except:
 		pass
 	
+# 	for output_record in output_records:
+# 		print(allcolumns[0],output_record[allcolumns[0]])
+
+# 	for cg in colgroups:
+# 		print("CG",cg)
+
+
 	output={
 		'tablestructure': colgroups,
 		'data': output_records,
@@ -982,6 +1060,9 @@ def crosstabs():
 	}
 	
 	return json.dumps(output)
+
+# 	except:
+# 		abort(400)
 
 @app.route('/csv_download/',methods=['POST'])
 def csv_download():
@@ -996,26 +1077,22 @@ def csv_download():
 	df=big_df['df']
 	ids=rdata['ids']
 	df=df[df['id'].isin(ids)]
+	# Dataset supports internal filtering; keep the public CSV column contract.
+	df=df.drop(columns=['dataset'],errors='ignore')
 	df=df.set_index('id')
 	df=df.reindex(ids)
 	df=df.fillna(0)
-
-	colsdict={
+	colswitchdict={
 		k:big_df['variables'][k]['label'] for k in big_df['variables']
 		if 'label' in big_df['variables'][k]
 	}
-	colsdict={}
-	
-	for k in df.columns:
-		if 'label' in big_df['variables'][k]:
-			label=big_df['variables'][k]['label']
-			colsdict[k]=label
 	
 	df=df.rename(
-		columns=colsdict
+		columns=colswitchdict
 	)
 
 	return df.to_csv(encoding='utf-8',index=False)
+
 	
 
 @app.route('/dataframes/',methods=['POST'])
