@@ -1,5 +1,5 @@
 import time
-from flask import Flask,jsonify,request,abort
+from flask import Flask,jsonify,request,abort,g,Response
 import json
 import math
 import requests
@@ -9,9 +9,44 @@ import networkx as nx
 from networkx_query import search_nodes, search_edges
 import re
 import time
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
+
+REQUEST_COUNT = Counter(
+	'sv_http_requests_total',
+	'Total HTTP requests handled by Slave Voyages services.',
+	['service', 'framework', 'endpoint', 'method', 'status']
+)
+REQUEST_LATENCY = Histogram(
+	'sv_http_request_duration_seconds',
+	'HTTP request latency for Slave Voyages services.',
+	['service', 'framework', 'endpoint', 'method'],
+	buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
+)
+
+@app.before_request
+def _start_request_timer():
+	g._prometheus_started_at = time.perf_counter()
+
+
+@app.after_request
+def _record_request_metrics(response):
+	started_at = getattr(g, '_prometheus_started_at', None)
+	if started_at is None:
+		return response
+	endpoint = request.url_rule.rule if request.url_rule is not None else request.path
+	method = request.method.upper()
+	status = str(getattr(response, 'status_code', 500))
+	REQUEST_COUNT.labels('voyages-people-networks', 'flask', endpoint, method, status).inc()
+	REQUEST_LATENCY.labels('voyages-people-networks', 'flask', endpoint, method).observe(time.perf_counter() - started_at)
+	return response
+
+
+@app.route('/metrics')
+def metrics():
+	return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
 standoff_base=4
 standoff_count=0

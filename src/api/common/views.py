@@ -1,4 +1,6 @@
-from django.http import Http404, HttpResponse, HttpResponseForbidden, JsonResponse,HttpResponseBadRequest
+from django.conf import settings
+from django.db import IntegrityError, transaction
+from django.http import Http404, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import render,get_object_or_404
 from rest_framework.schemas.openapi import AutoSchema
 from rest_framework import generics
@@ -151,6 +153,13 @@ class GlobalSearch(generics.GenericAPIView):
 		else:
 			return JsonResponse(serialized_resp.data,safe=False)
 
+
+def _saved_search_cleanup_authorized(request):
+	cleanup_token = getattr(settings, "SAVED_SEARCH_CLEANUP_TOKEN", "").strip()
+	supplied_token = request.headers.get("X-Voyages-Saved-Search-Cleanup", "").strip()
+	return bool(cleanup_token and supplied_token and supplied_token == cleanup_token)
+
+
 class MakeSavedSearch(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]
 	permission_classes=[IsAuthenticated]
@@ -171,65 +180,64 @@ class MakeSavedSearch(generics.GenericAPIView):
 		
 		srd=serialized_req.data
 		
-		hash_id=hashlib.sha256(json.dumps(srd,sort_keys=True,indent=1).encode('utf-8')).hexdigest()
+		hash_id=hashlib.sha256(
+			json.dumps(srd,sort_keys=True,indent=1).encode('utf-8')
+		).hexdigest()
 		
+		created=False
 		try:
 			sq=SavedQuery.objects.get(hash_id=hash_id)
 		except ObjectDoesNotExist:
 			sq=None
 		
 		if sq is None:
-			print("Making new saved search")
-			id=None
-			offset=0
-			while id is None:
-				try_unique_hash_id=hash_id[offset:offset+8]
-				try:
-					sq=SavedQuery.objects.get(id=try_unique_hash_id)
-					offset+=1
-				except:
-					id=try_unique_hash_id
 			query=serialized_req.data['query']
 			endpoint=serialized_req.data['endpoint']
+			# Preserve supplied dataset routes and tab fragments for exact round trips.
 			front_end_path=serialized_req.data.get('front_end_path')
-			
-			if not front_end_path or front_end_path not in [
-				'past/enslaved/african-origins',
-				'/past/enslaved/texasEnslaved',
-				'past/enslaver/trans-atlantic-trades',
-				'past/enslaver/intra-american-trades',
-				'/voyage/trans-atlantic',
-				'/voyage/intra-american',
-				'/voyage/indian-ocean'
-			]:
-				if 'enslaver' in endpoint:
-					front_end_path='/past/enslaver/enslaver'
-				elif 'enslaved' in endpoint:
-					front_end_path='/past/enslaved/all-enslaved'
-				elif 'voyage' in endpoint:
-					front_end_path='voyage/all-voyages'
-				else:
-					return HttpResponseBadRequest
-			
-			SQ=SavedQuery.objects.create(
-				id=id,
-				hash_id=hash_id,
-				endpoint=endpoint,
-				query=query,
-				front_end_path=front_end_path
-			)
-		else:
-			print("retrieving existing saved search")
-			id=sq.id
-		
-		data={
-			'endpoint':srd['endpoint'],
-			'id':id
-		}
-		
-		serialized_response=MakeSavedSearchResponseSerializer(data)
-		
-		return JsonResponse(serialized_response.data)
+			if not front_end_path:
+				front_end_path={
+					'assessment':'/assessment/estimates',
+					'past/enslaver':'/past/enslaver/enslaver',
+					'past/enslaved':'/past/enslaved/all-enslaved',
+					'voyage':'/voyage/all-voyages',
+					'voyages':'/voyage/all-voyages',
+				}[endpoint]
+			for offset in range(0,len(hash_id)-SavedQuery.ID_LENGTH+1):
+				try_unique_hash_id=hash_id[
+					offset:offset+SavedQuery.ID_LENGTH
+				]
+				try:
+					with transaction.atomic():
+						sq=SavedQuery.objects.create(
+							id=try_unique_hash_id,
+							hash_id=hash_id,
+							endpoint=endpoint,
+							query=query,
+							front_end_path=front_end_path
+						)
+					created=True
+					break
+				except IntegrityError:
+					# A concurrent request may have inserted this exact
+					# payload. If not, the short id collided and the next
+					# deterministic window is tried.
+					try:
+						sq=SavedQuery.objects.get(hash_id=hash_id)
+						break
+					except ObjectDoesNotExist:
+						continue
+			else:
+				return JsonResponse(
+					{'detail':'unable to allocate saved-search id'},
+					status=409
+				)
+
+		data=MakeSavedSearchResponseSerializer({
+			'endpoint':sq.endpoint,'id':sq.id
+		}).data
+		return JsonResponse({**data,'created':created})
+
 
 class UseSavedSearch(generics.RetrieveAPIView):	
 	'''
@@ -240,3 +248,10 @@ class UseSavedSearch(generics.RetrieveAPIView):
 	lookup_field="id"
 	authentication_classes=[TokenAuthentication]
 	permission_classes=[IsAuthenticated]
+
+	def delete(self,request,*args,**kwargs):
+		if not _saved_search_cleanup_authorized(request):
+			return HttpResponseForbidden("saved search cleanup token required")
+		instance=self.get_object()
+		instance.delete()
+		return Response(status=204)

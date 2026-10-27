@@ -41,12 +41,13 @@ jmespath==1.0.1
 jsonschema==4.19.1
 jsonschema-specifications==2023.7.1
 MarkupSafe==2.1.2
-mysqlclient==2.1.1
+mysqlclient==2.2.7
 numpy==1.24.3
 packaging==23.2
 Pillow==9.5.0
 proto-plus==1.26.1
 protobuf==6.31.1
+prometheus-client==0.24.1
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pyparsing==3.0.9

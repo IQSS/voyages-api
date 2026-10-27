@@ -11,3 +11,4 @@ Werkzeug==2.3.6
 zipp==3.15.0
 requests
 networkx-query
+prometheus-client==0.24.1

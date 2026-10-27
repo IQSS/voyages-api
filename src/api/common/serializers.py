@@ -108,6 +108,7 @@ class MakeSavedSearchResponseSerializer(serializers.Serializer):
 	def get_full_front_end_url(self,instance) -> serializers.CharField():
 		
 		pathmap={
+			'assessment':'estimates/',
 			'past/enslaver':'enslaver/',
 			'past/enslaved':'enslaved/',
 			'voyages':'voyages/',
@@ -133,6 +134,7 @@ class UseSavedSearchResponseSerializer(serializers.Serializer):
 
 	def get_full_front_end_url(self,instance) -> serializers.CharField():
 		pathmap={
+			'assessment':'estimates/',
 			'past/enslaver':'enslaver/',
 			'past/enslaved':'enslaved/',
 			'voyages':'voyages/',
