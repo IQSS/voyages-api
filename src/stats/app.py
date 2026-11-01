@@ -48,94 +48,60 @@ def _record_request_metrics(response):
 def metrics():
 	return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
-def re_cleanup(re_dict,val):
-	if val is not None:
-		val=re.sub(
-			re_dict['find'],
-			re_dict['replace'],
-			val,
-			flags=re_dict['flags']
-		)
-	return val
-
-
-def load_long_df(endpoint,variables):
+def fetch_columns(endpoint,fields):
 	headers={'Authorization':DJANGO_AUTH_KEY,'Content-Type': 'application/json'}
-	listval_vars={}
-	for v in list(variables):
-		listval=[]
-		if variables[v]['type']=="obj":
-			listval_vars[v]=variables[v]
 	r=requests.post(
 		url=DJANGO_BASE_URL+endpoint,
 		headers=headers,
-		data=json.dumps({'selected_fields':[
-			v for v in variables if v not in listval_vars
-		],'filter':[]})
+		data=json.dumps({'selected_fields':fields,'filter':[]})
 	)
-	j=json.loads(r.text)
-	df=pd.DataFrame.from_dict(j)
-	#coerce datatypes based on options call
+	return json.loads(r.text)
+
+def combine_fields(columns,spec):
+	fieldjoin=spec.get('join',": ")
+	cleanup=spec.get('re_cleanup')
+	combined=None
+	for field in spec['fields']:
+		col=pd.Series(columns[field],dtype=object)
+		present=col.notna()
+		if cleanup:
+			col[present]=col[present].astype(str).str.replace(
+				cleanup['find'],
+				cleanup['replace'],
+				regex=True,
+				flags=cleanup['flags']
+			)
+		col=col.where(present,"").astype(str)
+		combined=col if combined is None else combined+fieldjoin+col
+	return combined
+
+def load_long_df(endpoint,variables):
+	obj_vars={v:variables[v] for v in variables if variables[v]['type']=="obj"}
+	many_vars={v:obj_vars[v] for v in obj_vars if obj_vars[v].get('many')}
+	single_vars={v:obj_vars[v] for v in obj_vars if v not in many_vars}
+	
+	plain_fields=[v for v in variables if v not in obj_vars]
+	main_fields=list(dict.fromkeys(
+		plain_fields+[f for v in single_vars for f in single_vars[v]['fields']]
+	))
+	j=fetch_columns(endpoint,main_fields)
+	df=pd.DataFrame({f:j[f] for f in plain_fields})
 	for varName in variables:
-		vartype=variables[varName]['type']	
+		vartype=variables[varName]['type']
 		if vartype in ["int","pct"]:
 			df[varName]=pd.to_numeric(df[varName])
-		
-	#handle fields that
-	##1. are m2m and produce duplicates w a values_list call
-	##2. need to be stuffed into an object field in pandas
-	##3. need a regex cleanup
 	
-	rolluptime=0
-	dftime=0
-	
-	for v in listval_vars:
-		print(v,listval_vars[v])
-		df[v]=np.nan
-		df[v]=df[v].astype(str)
-		fields=["id"]+listval_vars[v]['fields']
-		if 'join' in listval_vars[v]:
-			fieldjoin=listval_vars[v]['join']
+	for v in obj_vars:
+		spec=obj_vars[v]
+		if v in single_vars:
+			df[v]=combine_fields(j,spec).values
 		else:
-			fieldjoin=": "
-		r=requests.post(
-			url=DJANGO_BASE_URL+endpoint,
-			headers=headers,
-			data=json.dumps({'selected_fields':[v for v in fields],'filter':[]})
-		)
-		j=json.loads(r.text)
-		# pull out m2m fields and join them (as strings)
-		rollup={}
-		if "re_cleanup" in listval_vars[v]:
-			cleanup=listval_vars[v]['re_cleanup']
-		else:
-			cleanup=None
-		if cleanup:
-			print("CLEANUP",v,cleanup)
-		jkeys=list(j.keys())
-		for i in range(len(j[jkeys[0]])):
-			idnum=j[jkeys[0]][i]
-			itemvals=[
-				re_cleanup(cleanup,j[k][i]) if cleanup else j[k][i]
-				for k in jkeys[1:]
-			]
-			if itemvals:
-				item=fieldjoin.join([
-					"" if itemval is None else str(itemval)
-					for itemval in itemvals
-				])
-				if idnum in rollup:
-					rollup[idnum].append(item)
-				else:
-					rollup[idnum]=[item]
-		
-		for i in rollup:
-			row=df[df['id']==i]
-			idx=row.index[0]
-			obj='|'.join(rollup[i])
-			df.iloc[idx,df.columns.get_loc(v)]=obj
+			jm=fetch_columns(endpoint,["id"]+spec['fields'])
+			ids=pd.Series(jm["id"])
+			rolled=combine_fields(jm,spec).groupby(ids.values,sort=False).agg('|'.join)
+			df[v]=df['id'].map(rolled).fillna('nan')
 	
-	return(df)
+	return(df[list(variables)])
 
 registered_caches=[
 	big_df,

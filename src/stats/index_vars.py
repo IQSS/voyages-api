@@ -71,17 +71,6 @@ big_df={
       "type": "str",
       "label": "Flag of vessel (IMP)"
     },
-    "voyage_itinerary__imp_region_voyage_begin__name": {
-      "type": "obj",
-      "label": "Imputed region where voyage began",
-      "re_cleanup": {
-        "type": "sub",
-        "find": "\.",
-        "replace": "",
-        "flags": re.DOTALL
-      },
-      "fields":["voyage_itinerary__imp_region_voyage_begin__name"]
-    },
     "voyage_ship__rig_of_vessel__name": {
       "type": "str",
       "label": "Rig of Vessel"
@@ -89,6 +78,66 @@ big_df={
     "voyage_itinerary__place_voyage_ended__name": {
       "type": "str",
       "label": "Place where vessel's voyage ended"
+    },
+    "voyage_slaves_numbers__percentage_men": {
+      "type": "pct",
+      "label": "Percent men"
+    },
+    "voyage_slaves_numbers__percentage_boy": {
+      "type": "pct",
+      "label": "Percent boys"
+    },
+    "voyage_itinerary__imp_broad_region_slave_dis__name": {
+      "type": "str",
+      "label": "Broad region of captive disembarkation (IMP)"
+    },
+    "voyage_slaves_numbers__percentage_girl": {
+      "type": "pct",
+      "label": "Percent girls"
+    },
+    "voyage_outcome__particular_outcome__name": {
+      "type": "str",
+      "label": "Particular outcome"
+    },
+    "voyage_slaves_numbers__percentage_child": {
+      "type": "pct",
+      "label": "Percent children"
+    },
+    "voyage_slaves_numbers__percentage_women": {
+      "type": "pct",
+      "label": "Percentage women on voyage"
+    },
+    "voyage_outcome__outcome_owner__name": {
+      "type": "str",
+      "label": "Outcome of voyage for investors"
+    },
+    "voyage_outcome__outcome_slaves__name": {
+      "type": "str",
+      "label": "Outcome of voyage for captives"
+    },
+    "voyage_outcome__resistance__name": {
+      "type": "str",
+      "label": "Resistance"
+    },
+    "voyage_slaves_numbers__percentage_male": {
+      "type": "pct",
+      "label": "Percent male"
+    },
+    "voyage_slaves_numbers__percentage_female": {
+      "type": "pct",
+      "label": "Percent female"
+    },
+    "voyage_itinerary__imp_broad_region_voyage_begin__name": {
+      "type": "str",
+      "label": "Broad region where voyage began (IMP)"
+    },
+    "voyage_itinerary__imp_broad_region_of_slave_purchase__name": {
+      "type": "str",
+      "label": "Broad region of captive purchase (IMP)"
+    },
+    "voyage_itinerary__imp_region_voyage_begin__name": {
+      "type": "str",
+      "label": "Imputed region where voyage began"
     },
     "voyage_dates__slave_purchase_began_sparsedate": {
       "type": "obj",
@@ -99,10 +148,6 @@ big_df={
       	"voyage_dates__slave_purchase_began_sparsedate__month",
       	"voyage_dates__slave_purchase_began_sparsedate__day"
       	]
-    },
-    "voyage_slaves_numbers__percentage_men": {
-      "type": "pct",
-      "label": "Percent men"
     },
     "voyage_dates__voyage_completed_sparsedate": {
       "type": "obj",
@@ -115,41 +160,16 @@ big_df={
       	]
     },
     "voyage_itinerary__region_of_return__name": {
-      "type": "obj",
-      "label": "Region of return",
-      "re_cleanup": {
-        "type": "sub",
-        "find": "\.",
-        "replace": "",
-        "flags": re.DOTALL
-      },
-      "fields":["voyage_itinerary__region_of_return__name"]
-    },
-    "voyage_slaves_numbers__percentage_boy": {
-      "type": "pct",
-      "label": "Percent boys"
+      "type": "str",
+      "label": "Region of return"
     },
     "voyage_itinerary__imp_principal_region_slave_dis__name": {
-      "type": "obj",
-      "label": "Imputed principal region of captive disembarkation",
-      "re_cleanup": {
-        "type": "sub",
-        "find": "\.",
-        "replace": "",
-        "flags": re.DOTALL
-      },
-      "fields":["voyage_itinerary__imp_principal_region_slave_dis__name"]
+      "type": "str",
+      "label": "Imputed principal region of captive disembarkation"
     },
     "voyage_itinerary__imp_principal_region_of_slave_purchase__name": {
-      "type": "obj",
-      "label": "Imputed Principal region of captive purchase",
-      "re_cleanup": {
-        "type": "sub",
-        "find": "\.",
-        "replace": "",
-        "flags": re.DOTALL
-      },
-      "fields":["voyage_itinerary__imp_principal_region_of_slave_purchase__name"]
+      "type": "str",
+      "label": "Imputed Principal region of captive purchase"
     },
     "voyage_dates__date_departed_africa_sparsedate": {
       "type": "obj",
@@ -172,15 +192,8 @@ big_df={
       	]
     },
     "voyage_itinerary__imp_port_voyage_begin__name": {
-      "type": "obj",
-      "label": "Imputed Place where vessel's voyage began",
-      "re_cleanup": {
-        "type": "sub",
-        "find": "\.",
-        "replace": "",
-        "flags": re.DOTALL
-      },
-      "fields":["voyage_itinerary__imp_port_voyage_begin__name"]
+      "type": "str",
+      "label": "Imputed Place where vessel's voyage began"
     },
     "voyage_dates__first_dis_of_slaves_sparsedate": {
       "type": "obj",
@@ -192,36 +205,9 @@ big_df={
       	"voyage_dates__first_dis_of_slaves_sparsedate__day"
       	]
     },
-    "voyage_itinerary__imp_broad_region_slave_dis__name": {
-      "type": "str",
-      "label": "Broad region of captive disembarkation (IMP)"
-    },
-    "voyage_slaves_numbers__percentage_girl": {
-      "type": "pct",
-      "label": "Percent girls"
-    },
-    "voyage_outcome__particular_outcome__name": {
-      "type": "str",
-      "label": "Particular outcome"
-    },
     "voyage_itinerary__imp_principal_port_slave_dis__name": {
-      "type": "obj",
-      "label": "Imputed principal port of captive disembarkation",
-      "re_cleanup": {
-        "type": "sub",
-        "find": "\.",
-        "replace": "",
-        "flags": re.DOTALL
-      },
-      "fields":["voyage_itinerary__imp_principal_port_slave_dis__name"]
-    },
-    "voyage_slaves_numbers__percentage_child": {
-      "type": "pct",
-      "label": "Percent children"
-    },
-    "voyage_slaves_numbers__percentage_women": {
-      "type": "pct",
-      "label": "Percentage women on voyage"
+      "type": "str",
+      "label": "Imputed principal port of captive disembarkation"
     },
     "voyage_dates__departure_last_place_of_landing_sparsedate": {
       "type": "obj",
@@ -233,47 +219,13 @@ big_df={
       	"voyage_dates__departure_last_place_of_landing_sparsedate__day"
       	]
     },
-    "voyage_outcome__outcome_owner__name": {
-      "type": "str",
-      "label": "Outcome of voyage for investors"
-    },
-    "voyage_outcome__outcome_slaves__name": {
-      "type": "str",
-      "label": "Outcome of voyage for captives"
-    },
     "voyage_itinerary__imp_principal_place_of_slave_purchase__name": {
-      "type": "obj",
-      "label": "Imputed principal place of captive purchase",
-      "re_cleanup": {
-        "type": "sub",
-        "find": "\.",
-        "replace": "",
-        "flags": re.DOTALL
-      },
-      "fields":["voyage_itinerary__imp_principal_place_of_slave_purchase__name"]
-    },
-    "voyage_outcome__resistance__name": {
       "type": "str",
-      "label": "Resistance"
-    },
-    "voyage_slaves_numbers__percentage_male": {
-      "type": "pct",
-      "label": "Percent male"
-    },
-    "voyage_slaves_numbers__percentage_female": {
-      "type": "pct",
-      "label": "Percent female"
-    },
-    "voyage_itinerary__imp_broad_region_voyage_begin__name": {
-      "type": "str",
-      "label": "Broad region where voyage began (IMP)"
-    },
-    "voyage_itinerary__imp_broad_region_of_slave_purchase__name": {
-      "type": "str",
-      "label": "Broad region of captive purchase (IMP)"
+      "label": "Imputed principal place of captive purchase"
     },
     "voyage_sources": {
       "type": "obj",
+      "many": True,
       "fields": [
         "voyage_source_connections__source__bib"
       ],
@@ -287,6 +239,7 @@ big_df={
     },
     "enslavers": {
       "type": "obj",
+      "many": True,
       "fields": [
         "voyage_enslavement_relations__relation_enslavers__roles__name",
         "voyage_enslavement_relations__relation_enslavers__enslaver_alias__identity__principal_alias"
