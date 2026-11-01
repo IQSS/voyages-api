@@ -875,21 +875,53 @@ class VoyageCrossTabRequestSerializer(serializers.Serializer):
 	)
 	rows_label=serializers.CharField(required=False)
 	agg_fn=serializers.ChoiceField(choices=["mean","sum","max","min","count"])
-	offset=serializers.IntegerField(required=False)
-	limit=serializers.IntegerField(required=False)
-	order_by=serializers.ListField(child=serializers.CharField(),required=False)
+	offset=serializers.IntegerField(
+		required=False,
+		help_text="optional: first row to return. Omit offset and limit to get every row."
+	)
+	limit=serializers.IntegerField(
+		required=False,
+		help_text="optional: number of rows to return. Omit to get every row."
+	)
+	order_by=serializers.ListField(
+		child=serializers.CharField(),
+		required=False,
+		help_text="one key: the rows_label (sort by row) or a column path joined with '__' (e.g. 'Africa__Bight of Benin', or 'All' for the totals column). Prefix with '-' for descending."
+	)
 	global_search=serializers.CharField(required=False)
 	filter=VoyageFilterItemSerializer(many=True,required=False)
+	format=serializers.ChoiceField(
+		choices=["json","csv"],
+		required=False,
+		help_text="json (default) returns the compact table; csv returns a text/csv file with one header row per column level and the totals row last."
+	)
 	csv_output=serializers.ChoiceField(
 		choices=[True,False],
-		help_text="MCP's should request csv format -- reduces output size by 87%",
+		help_text="legacy: returns the csv text inside a JSON object ({data, metadata}). MCP's should request csv -- far smaller than json.",
 		required=False
 	)
-	
+
+class VoyageCrossTabMetadataSerializer(serializers.Serializer):
+	total_results_count=serializers.IntegerField()
+	offset=serializers.IntegerField()
+	limit=serializers.IntegerField(allow_null=True)
+
 class VoyageCrossTabResponseSerializer(serializers.Serializer):
-	tablestructure=serializers.JSONField(required=False,allow_null=True)
-	data=serializers.JSONField()
-	metadata=VoyageOffsetPaginationSerializer()
+	row_label=serializers.CharField(allow_blank=True)
+	column_labels=serializers.ListField(child=serializers.CharField())
+	value_label=serializers.CharField(allow_blank=True)
+	columns=serializers.ListField(
+		child=serializers.ListField(child=serializers.CharField(allow_blank=True)),
+		help_text="one path per column, outermost level first; the totals column is ['All']"
+	)
+	rows=serializers.ListField(child=serializers.CharField(allow_blank=True))
+	values=serializers.JSONField(help_text="one list per row, aligned with columns")
+	totals=serializers.JSONField(help_text="the totals row, aligned with columns")
+	metadata=VoyageCrossTabMetadataSerializer()
+
+class VoyageCrossTabLegacyCSVResponseSerializer(serializers.Serializer):
+	data=serializers.CharField(allow_blank=True)
+	metadata=VoyageCrossTabMetadataSerializer()
 
 @extend_schema_serializer(
 	examples=[

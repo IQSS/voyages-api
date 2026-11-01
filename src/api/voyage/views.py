@@ -227,10 +227,11 @@ class VoyageCrossTabs(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]
 	permission_classes=[IsAuthenticated]
 	@extend_schema(
-		description="Cross-tab endpoint for aggregations across the dataset. The \
-		'columns' field has cardinality guidance — read its description \
+		description="Cross-tab endpoint for aggregations across the dataset. \
+		Returns every row by default; offset and limit are optional. \
+		The 'columns' field has cardinality guidance — read its description \
 		before selecting a value. \
-		LLM's should use csv_output=True to reduce response size by 87%.",
+		format='csv' returns a text/csv file; LLM's should prefer it to reduce response size.",
 		request=VoyageCrossTabRequestSerializer,
 		responses=VoyageCrossTabResponseSerializer
 	)
@@ -238,15 +239,12 @@ class VoyageCrossTabs(generics.GenericAPIView):
 		st=time.time()
 		if DEBUG:
 			print("VOYAGE CROSSTABS+++++++\nusername:",request.auth.user)
-			
 		
-		#VALIDATE THE REQUEST
 		serialized_req = VoyageCrossTabRequestSerializer(data=request.data)
-		if not serialized_req.is_valid():	
+		if not serialized_req.is_valid():
 			print("malformed crosstabs request:\n",json.dumps(request.data,indent=1))
 			return JsonResponse(serialized_req.errors,status=400)
-
-		#FILTER THE VOYAGES BASED ON THE REQUEST'S FILTER OBJECT
+		
 		queryset=Voyage.objects.all()
 		results,results_count,page,page_size,error_messages=post_req(
 			queryset,
@@ -258,33 +256,35 @@ class VoyageCrossTabs(generics.GenericAPIView):
 		
 		if error_messages:
 			return(JsonResponse(error_messages,safe=False,status=400))
-
-	
-		#MAKE THE CROSSTABS REQUEST TO VOYAGES-STATS
+		
 		ids=[i[0] for i in results.values_list('id')]
 		u2=STATS_BASE_URL+'crosstabs/'
-		params=dict(request.data)
-		stats_req_data=params
+		stats_req_data=dict(request.data)
 		stats_req_data['ids']=ids
-		stats_req_data['cachename']='voyage_pivot_tables'
 		r=requests.post(url=u2,data=json.dumps(stats_req_data),headers={"Content-type":"application/json"})
-		print(r)
-		#VALIDATE THE RESPONSE
-		if r.ok:
-			j=json.loads(r.text)
-			serialized_resp=VoyageCrossTabResponseSerializer(data=j)
-		else:
+		if not r.ok:
 			return JsonResponse({'message':r.text},status=502)
-			
+		
+		if request.data.get('format')=='csv':
+			resp=HttpResponse(r.content,content_type='text/csv; charset=utf-8',status=200)
+			resp['Content-Disposition']='attachment; filename="voyages_pivot_table.csv"'
+			if DEBUG:
+				print("Internal Response Time:",time.time()-st,"\n+++++++")
+			return resp
+		
+		j=json.loads(r.text)
+		if request.data.get('csv_output'):
+			serialized_resp=VoyageCrossTabLegacyCSVResponseSerializer(data=j)
+		else:
+			serialized_resp=VoyageCrossTabResponseSerializer(data=j)
+		
 		if not serialized_resp.is_valid():
 			return JsonResponse(serialized_resp.errors,status=502)
-		else:
-			resp=serialized_resp.data
 		
 		if DEBUG:
 			print("Internal Response Time:",time.time()-st,"\n+++++++")
 		
-		return JsonResponse(resp,safe=False,status=200)
+		return JsonResponse(serialized_resp.data,safe=False,status=200)
 
 class VoyageLineAndBarCharts(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]

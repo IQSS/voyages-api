@@ -640,388 +640,168 @@ def estimates_timeline():
 
 @app.route('/crosstabs/',methods=['POST'])
 def crosstabs():
-	
-	'''
-	Implements the pandas crosstab function and returns the sparse summary.
-	Excellent for pivot tables and maps (e.g., Origin/Destination pairs for voyages with summary values for those pairs)
-	Is my solution below (raw html) elegant? No.
-	Is that the point? No! Consider that the slavevoyages tables
-		1. aren't true pivot tables (can't group rows)
-		2. don't even work right now (row header is wrong)
-	Recommend using something like this to paginate the bulky html: https://jsfiddle.net/u9d1ewsh/
-	And other on-page jquery handlers for column sorting, sankey & map popups, column & row collapsing, etc.
-	Unfortunately, I haven't figured out how to do this for less than 10MB and 5 seconds if I style the html dump at all
-	--> so for now at least it'll have to be on-page jquery indexing?
-	'''
-	
-	st=time.time()
 	rdata=request.json
 	ids=rdata['ids']
-	csv_output=rdata.get('csv_output')
-	
-	if len(ids)==0:
-		return json.dumps({
-			'tablestructure': {},
-			'data': {},
-			'metadata':{
-				'total_results_count': 0,
-				'offset':0,
-				'limit':0
-			}
-		})
-
-	#a 2ple for groupby_fields to give us rows & columns (maybe expand this later)
 	columns=rdata.get('columns')
 	rows=rdata.get('rows')
 	val=rdata.get('value_field')
 	fn=rdata.get('agg_fn')
-	limit=rdata.get('limit') or 10
-	offset=rdata.get('offset') or 0
 	binsize=rdata.get('binsize')
 	order_by=rdata.get('order_by')
-	
+	offset=int(rdata.get('offset') or 0)
+	limit=rdata.get('limit')
+	rows_label=rdata.get('rows_label') or ''
+	output_format=rdata.get('format') or 'json'
+	legacy_csv=bool(rdata.get('csv_output'))
 	normalize=rdata.get('normalize')
-	if normalize is not None:
-		normalize=normalize[0]
+	if isinstance(normalize,list):
+		normalize=normalize[0] if normalize else None
 	if normalize not in ["columns","index"]:
 		normalize=False
 	
+	variables=big_df['options']
+	is_float=fn=='mean' or variables[val]['type']=='pct' or bool(normalize)
+	column_labels=[variables.get(c,{}).get('label',c) for c in columns]
+	
 	df=big_df['df']
-	options=big_df['options']
 	df=df[df['id'].isin(ids)]
 	
-	
-	def interval_to_str(s):
-		s=str(s)
-		return re.sub('[\s,]+','-',re.sub('[\[\]]','',s))
-
-	def makestr(s):
-		if s is None:
-			return "Unknown"
-		else:
-			return str(s)
-
-	valuetype=options[val]['type']
-	
-	pandasvaluetypemap={
-		'pct':'float',
-		'int':'int',
-		'str':'object'
-	}
-	
-	pandasvaluetype=pandasvaluetypemap[valuetype]
-	
-	##TBD --> NEED TO VALIDATE THAT THE ROWS VARIABLE IS
-	####1) NUMERIC TO WORK IN THE FIRST PLACE
-	####2) A YEAR VAR IN ORDER TO MAKE SENSE TO A HUMAN END-USER
-	if binsize is not None:
-# 		print("ROWS",rows)
-		binrows=rows
-# 		print(binrows)
-# 		print(df)
-
+	rowkey=rows
+	bin_labels=None
+	if binsize is not None and len(df)>0:
 		binsize=int(binsize)
-# 		print(df)
-		df=df.fillna(0)
-# 		df=df.dropna(subset=[rows,val])
-		df[binrows]=df[binrows].astype('int')
-		df=df[~df[binrows].isin([0])]
-		binvar_min=df[binrows].min()
-		
-		#clean up binvar_min?
-		binvar_min=binvar_min-binvar_min%binsize
-		if binvar_min%10==0:
-			binvar_min+=1
-		
-		
-		binvar_max=df[binrows].max()
-		binvar_ints=list(range(int(binvar_min),int(binvar_max)+1))
-		if binvar_max-binvar_min <=binsize:
-			nbins=1
-		else:
-			nbins=int((binvar_max-binvar_min)/binsize)+1
-		
-		bin_tuples=[]
-		for nbin in range(nbins):
-			nbinmin=binvar_min+(binsize*nbin)
-			nbinmax=binvar_min+(binsize*(nbin+1))-1
-			if nbinmax>=binvar_max:
-				nbinmax=binvar_max
-			thisbin=(nbinmin,nbinmax)
-			bin_tuples.append(thisbin)
-		
-		bins=pd.IntervalIndex.from_tuples(bin_tuples,closed='both')
-		
-		df=df.assign(row_bins=pd.cut(df[rows],bins,include_lowest=True))
-		df=df[columns+[val]+['row_bins']]
-		df.rename(columns={"row_bins": rows})
-		df['row_bins']=df['row_bins'].astype('str')
-		df[val]=df[val].astype('int')
-		df['row_bins']=df['row_bins'].apply(interval_to_str)
-		ct=pd.crosstab(
-			[df['row_bins']],
-			[df[col] for col in columns],
-			values=df[val],
-			aggfunc=fn,
-			margins=True
-		)
-		ct=ct.fillna(0)
-		
+		df=df[df[rows].notna() & (df[rows]!=0)]
+		if len(df)>0:
+			years=df[rows].astype('int')
+			binvar_min=years.min()
+			binvar_min=binvar_min-binvar_min%binsize
+			if binvar_min%10==0:
+				binvar_min+=1
+			binvar_max=years.max()
+			if binvar_max-binvar_min<=binsize:
+				nbins=1
+			else:
+				nbins=int((binvar_max-binvar_min)/binsize)+1
+			bin_tuples=[]
+			for nbin in range(nbins):
+				nbinmin=binvar_min+(binsize*nbin)
+				nbinmax=min(binvar_min+(binsize*(nbin+1))-1,binvar_max)
+				bin_tuples.append((int(nbinmin),int(nbinmax)))
+			bin_labels={
+				a:(str(a) if binsize==1 and a==b else f"{a}-{b}")
+				for a,b in bin_tuples
+			}
+			in_range=years>=binvar_min
+			df=df[in_range]
+			years=years[in_range]
+			rowkey='__row_bin__'
+			df=df.assign(**{rowkey:binvar_min+((years-binvar_min)//binsize)*binsize})
+	
+	def as_label(v):
+		if isinstance(v,float) and v.is_integer():
+			return str(int(v))
+		return str(v)
+	
+	def row_label(v):
+		if bin_labels is not None:
+			return bin_labels[int(v)]
+		return as_label(v)
+	
+	def cell_values(frame):
+		vals=frame.to_numpy(dtype=float)
+		if is_float:
+			return np.round(vals,4).tolist()
+		return np.rint(vals).astype(np.int64).tolist()
+	
+	if len(df)==0:
+		body=None
+		totals=None
+		col_paths=[]
 	else:
+		undefined_vars=list(dict.fromkeys(columns+([] if bin_labels is not None else [rows])))
+		df=df.assign(**{c:df[c].astype(object).where(df[c].notna(),'Undefined') for c in undefined_vars})
+		
 		ct=pd.crosstab(
-			df[rows],
-			[df[col] for col in columns],
+			df[rowkey],
+			[df[c] for c in columns],
 			values=df[val],
 			aggfunc=fn,
 			normalize=normalize,
 			margins=True
-		)
-		ct.fillna(0)
-	
-	if len(columns)==1:
-		mlctuples=[[i] for i in list(ct.columns)]
-	else:
-		mlctuples=list(ct.columns)
-	
-	indexcol_name=rdata.get('rows_label') or ''
-	
-	if order_by:
-		ob=order_by[0] or ''
-		ascending=not ob.startswith('-')
-		ob_key=ob[1:] if not ascending else ob
-		col_keys={
-			("__".join([i if type(i)!=int else "Undefined" for i in c]) if c[0]!='All' else 'All'):col
-			for c,col in zip(mlctuples,ct.columns)
-		}
-		if 'All' in ct.index:
-			margin=ct.loc[['All']]
-			body=ct.drop(index='All')
-		else:
-			margin=None
-			body=ct
-		if ob_key in [indexcol_name,rows]:
-			body=body.sort_index(ascending=ascending)
-		elif ob_key in col_keys:
-			body=body.sort_values(by=col_keys[ob_key],ascending=ascending,kind='mergesort')
-		if margin is not None:
-			ct=pd.concat([body,margin])
-		else:
-			ct=body
-	
-	
-	def makechild(name,isfield=False,columngroupshow=False,key=None,dtype=None):
-		if columngroupshow:
-			cgsval="open"
-		else:
-			cgsval="closed"
-		if isfield:
-			##N.B. "All" is a reserved column name here, for the margins/totals
-			### IN OTHER WORDS, NO VALUE FOR A COLUMN IN THE DF CAN BE "ALL"
-			if type(key) in [list,tuple]:
-				if key[0]=='All':
-					key='All'
-				else:
-# 					key=re.sub('\.','','__'.join(key))
-					key='__'.join([
-						i if type(i)!=int else "Undefined" for i in key
-					])
-					
-			
-			
-			child={
-				"columnGroupShow":cgsval,
-				"headerName":name,
-				"field":key,
-				"dtype":valuetype
-# 				"filter": 'agNumberColumnFilter',
-# 				"sort": 'desc'
-			}
-			
-			if dtype is not None:
-				child['dtype']=dtype
-			
-# 			if ascending:
-# 				child['sort']='asc'
-
-			if key=='All':
-				child['pinned']='right'
-		else:
-			child={
-				"headerName":name,
-				"children":[]
-			}
-		return child
+		).fillna(0)
 		
-	##N.B. "All" is a reserved column name here, for the margins/totals
-	### IN OTHER WORDS, NO VALUE FOR A COLUMN IN THE DF CAN BE "ALL"
-	def makecolgroups(colgroups,mlct,fullpath):
-		k=mlct.pop()
-# 		print("k---->",k)
-		if k is not None:
-			if type(k)==int or k=="nan":
-				#this becomes an issue when we're doing year bins
-				#because we have to fill in zeroes to avoid a null data issue
-				#and so 0 becomes a column
-				k="Undefined"
-
-			if len(mlct)>0 and k!= 'All':
-				headernames=[cg['headerName'] for cg in colgroups]
-				if k not in headernames:
-					thiscg=makechild(k,isfield=False)
-					colgroups.append(thiscg)
-				else:
-					thiscg=[cg for cg in colgroups if cg['headerName']==k][0]
-				thiscg_idx=colgroups.index(thiscg)
-				colgroups[thiscg_idx]['children']=makecolgroups(thiscg['children'],mlct,fullpath)
-			elif k=='All':
-				##N.B. "All" is a reserved column name here, for the margins/totals
-				thiscg=makechild('',isfield=False)
-				thisfield=makechild(k,isfield=True,key=fullpath)
-# 				print(thisfield,k,fullpath)
-				thiscg['children'].append(thisfield)
-				colgroups.append(thiscg)
-			else:
-				thisfield=makechild(k,isfield=True,key=fullpath)
-				colgroups.append(thisfield)
-		return colgroups
-	
-	colgroups=[]	
-	indexcolcg=makechild('',isfield=False)
-	indexcolfield=makechild(indexcol_name,isfield=True,key=indexcol_name,dtype="str")
-	indexcolfield['pinned']='left'
-	indexcolcg['children'].append(indexcolfield)
-	colgroups.append(indexcolcg)
-	
-	for mlct in mlctuples:
-	
-# 		print("MLCT",mlct)
-		l=list(mlct)
-		l.reverse()
-		colgroups=makecolgroups(colgroups,l,mlct)
-
-	#place undefined col (if it exists) last
-	for idx in range(len(colgroups)):
-		colgroup=colgroups[idx]
-		if colgroup['headerName']=="Undefined":
-			del(colgroups[idx])
-			colgroups.append(colgroup)
-	
+		def undefined_last(t):
+			t=t if isinstance(t,tuple) else (t,)
+			return (t[0]=='All',)+tuple((x=='Undefined',str(x)) for x in t)
+		ct=ct[sorted(ct.columns,key=undefined_last)]
+		if bin_labels is None:
+			ct=ct.loc[sorted(ct.index,key=lambda i:(i=='All',i=='Undefined'))]
 		
-	
-	output_records=[]
-	##N.B. "All" is a reserved column name here, for the margins/totals
-	### IN OTHER WORDS, NO VALUE FOR A COLUMN IN THE DF CAN BE "ALL"
-# 	allcolumns=[re.sub('\.','',"__".join(c)) if c[0]!='All' else 'All' for c in mlctuples]
-	allcolumns=["__".join([i if type(i)!=int else "Undefined" for i in c]) if c[0]!='All' else 'All' for c in mlctuples]
-	allcolumns.insert(0,indexcol_name)
-	ct=ct.fillna(0)
-# 	print(ct)
-	
-	def convertcell(cellval,pandasvaluetype):
-		if pandasvaluetype == "float":
-			return float(cellval)
-		elif pandasvaluetype=="int":
-			return int(cellval)
-	
-	ctshape=ct.shape
-	rowcount=ctshape[0]	
-	start=offset
-	end=min((offset+limit),rowcount-1)
-	
-	
-	
-	if csv_output:
-			
-		chunk = ct.iloc[start:start+end]
+		col_tuples=[c if isinstance(c,tuple) else (c,) for c in ct.columns]
+		col_paths=[
+			['All'] if t[0]=='All' else [as_label(x) for x in t]
+			for t in col_tuples
+		]
+		col_lookup={"__".join(p):c for p,c in zip(col_paths,ct.columns)}
 		
-		margin=None
-		#slap the margin row onto paginated results (except the last page)
-		if end!=rowcount-1:
-			try:
-				margin=ct.loc['All']
-			except:
-				pass
+		totals=ct.loc['All'] if 'All' in ct.index else None
+		body=ct.drop(index='All',errors='ignore')
 		
-		if margin is not None:
-			chunk = pd.concat([chunk,margin.to_frame().T], ignore_index=True)
-		
-		data=chunk.to_csv(encoding='utf-8')
-		
-		output={
-			'data': data,
-			'metadata':{
-				'total_results_count': rowcount,
-				'offset':offset,
-				'limit':limit
-			}
-		}
-		
-		return output
+		if order_by:
+			ob=order_by[0] or ''
+			ascending=not ob.startswith('-')
+			key=ob[1:] if not ascending else ob
+			if key in [rows_label,rows]:
+				body=body.sort_index(ascending=ascending,kind='mergesort')
+			elif key in col_lookup:
+				body=body.sort_values(by=col_lookup[key],ascending=ascending,kind='mergesort')
 	
-	ct_records=ct.to_records()
-#
-# 	for output_record in output_records:
-# 		print(allcolumns[0],output_record[allcolumns[0]])
-# 		if output_record[allcolumns[0]]=="All":
-# 			output_records.remove(output_record)
-# 			marginrow=output_record
-#
-#
-	indexkey=allcolumns[0]
-	for r in range(len(ct_records)):
-# 	ct_records[start:end]:
-		row=ct_records[r]
-# 		print(row)
-		for i in range(len(row)):
-			if i==0:
-				thisrecord={
-					allcolumns[i]:(
-						convertcell(row[i],pandasvaluetype) if i!=0 else row[i]
-					)
-					for i in range(len(row))
-				}
-# 				print("RECORD---->",thisrecord)
-				#THIS IS A RATHER UGLY WAY OF ENSURING THAT INDIVIDUAL YEARS DON'T APPEAR AS HYPHEN-SEPARATED REPEATS, LIKE 1900-1900
-				indexkeyval=thisrecord[indexkey]
-				if binsize==1 and re.match("[0-9]+-[0-9]+",indexkeyval):
-					indexkeyval=thisrecord[indexkey]
-# 					print("INDEXKEYVAL",indexkeyval)
-					indexkeyval_a,indexkeyval_b=str(indexkeyval).split("-")
-					if indexkeyval_a==indexkeyval_b:
-						thisrecord[indexkey]=indexkeyval_a
-# 		print("RECORD INDEX---->",thisrecord[allcolumns[0]])
-# 		print("RECORD---->",thisrecord)
-		if thisrecord[indexkey]!="All" and (r>=start and r<=end):
-			output_records.append(thisrecord)
-		elif thisrecord[indexkey]=="All":
-			marginrow=thisrecord
+	total_count=0 if body is None else len(body)
+	if body is not None:
+		if limit is not None:
+			body=body.iloc[offset:offset+int(limit)]
+		elif offset:
+			body=body.iloc[offset:]
 	
-	try:
-		output_records.append(marginrow)
-	except:
-		pass
-	
-# 	for output_record in output_records:
-# 		print(allcolumns[0],output_record[allcolumns[0]])
-
-# 	for cg in colgroups:
-# 		print("CG",cg)
-
-
-	output={
-		'tablestructure': colgroups,
-		'data': output_records,
-		'metadata':{
-			'total_results_count': rowcount,
-			'offset':offset,
-			'limit':limit
-		}
+	metadata={
+		'total_results_count':total_count,
+		'offset':offset,
+		'limit':limit
 	}
+	row_labels=[] if body is None else [row_label(i) for i in body.index]
 	
+	if output_format=='csv' or legacy_csv:
+		if body is None:
+			csv_text=''
+		else:
+			nlevels=len(columns)
+			table=pd.concat([body,totals.to_frame().T]) if totals is not None else body.copy()
+			table.index=row_labels+(['All'] if totals is not None else [])
+			table.index.name=rows_label
+			table.columns=pd.MultiIndex.from_tuples(
+				[tuple(p+['']*(nlevels-len(p))) for p in col_paths],
+				names=column_labels
+			)
+			if is_float:
+				table=table.round(4)
+			else:
+				table=table.round().astype(np.int64)
+			csv_text=table.to_csv(encoding='utf-8')
+		if legacy_csv and output_format!='csv':
+			return json.dumps({'data':csv_text,'metadata':metadata})
+		return Response(csv_text,mimetype='text/csv')
+	
+	output={
+		'row_label':rows_label,
+		'column_labels':column_labels,
+		'value_label':variables[val].get('label',val),
+		'columns':col_paths,
+		'rows':row_labels,
+		'values':[] if body is None else cell_values(body),
+		'totals':[] if totals is None else cell_values(totals.to_frame().T)[0],
+		'metadata':metadata
+	}
 	return json.dumps(output)
-
-# 	except:
-# 		abort(400)
 
 @app.route('/csv_download/',methods=['POST'])
 def csv_download():
