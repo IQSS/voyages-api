@@ -589,6 +589,10 @@ class VoyageLineAndBarChartsRequestSerializer(serializers.Serializer):
 	filter=VoyageFilterItemSerializer(many=True,required=False)
 	global_search=serializers.CharField(required=False)
 
+############ BIBLIOGRAPHY ENDPOINT
+class VoyageBibliographyRequestSerializer(serializers.Serializer):
+	voyage_ids=serializers.ListField(child=serializers.IntegerField())
+
 ############ DATAFRAMES ENDPOINT
 @extend_schema_serializer(
 	examples=[
@@ -724,6 +728,7 @@ class VoyageAggRoutesNodesSerializer(serializers.Serializer):
 class VoyageAggRoutesResponseSerializer(serializers.Serializer):
 	edges=serializers.ListField(child=VoyageAggRoutesEdgesSerializer())
 	nodes=serializers.ListField(child=VoyageAggRoutesNodesSerializer())
+	voyage_mappings=serializers.DictField(required=False)
 
 ############ AGGREGATION FIELD
 @extend_schema_serializer(

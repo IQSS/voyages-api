@@ -498,6 +498,78 @@ class VoyageDataFrames(generics.GenericAPIView):
 		
 		return JsonResponse(resp,safe=False,status=200)
 
+BIB_FIELD='voyage_source_connections__source__bib'
+PAGE_RANGE_FIELD='voyage_source_connections__page_range'
+
+def strip_hyperlinks(text):
+	text=re.sub(r'</?a\b[^>]*>','',text,flags=re.I)
+	text=re.sub(r'(https?://|www\.)[^\s<>()\[\]]*[^\s<>()\[\].,;:]','',text,flags=re.I)
+	text=re.sub(r'\(\s*\)|\[\s*\]','',text)
+	text=re.sub(r'\s+([,.;:])',r'\1',text)
+	return re.sub(r'\s{2,}',' ',text).strip()
+
+def unwrap_blocks(text):
+	return re.sub(r'</?(div|p)\b[^>]*>',' ',text,flags=re.I)
+
+def strip_trailing_punctuation(text):
+	return re.sub(r'[\s.,;:!?\-–—]+((?:</[^>]+>\s*)*)$',r'\1',text).strip()
+
+def natural_key(text):
+	plain=re.sub(r'<[^>]*>','',text)
+	return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)',plain)]
+
+@extend_schema(tags=['exclude_mcp'])
+class VoyageBibliography(generics.GenericAPIView):
+	authentication_classes=[TokenAuthentication]
+	permission_classes=[IsAuthenticated]
+	@extend_schema(
+		description="Takes a list of voyage ids and returns the deduplicated bibliography of their sources, sorted alphabetically, one string per source: the bib followed by every page range cited for it.",
+		request=VoyageBibliographyRequestSerializer,
+		responses=serializers.ListField(child=serializers.CharField())
+	)
+	def post(self,request):
+		st=time.time()
+		serialized_req=VoyageBibliographyRequestSerializer(data=request.data)
+		if not serialized_req.is_valid():
+			return JsonResponse(serialized_req.errors,status=400)
+		voyage_ids=serialized_req.validated_data['voyage_ids']
+		if not voyage_ids:
+			return JsonResponse([],safe=False,status=200)
+		selected_fields=[BIB_FIELD,PAGE_RANGE_FIELD]
+		params={
+			'filter':[{'varName':'voyage_id','op':'in','searchTerm':voyage_ids}],
+			'selected_fields':selected_fields
+		}
+		results,results_count,page,page_size,error_messages=post_req(
+			Voyage.objects.all(),
+			self,
+			params,
+			Voyage_options,
+			auto_prefetch=True,
+			paginate=False
+		)
+		if error_messages:
+			return(JsonResponse(error_messages,safe=False,status=400))
+		bibs={}
+		for bib,page_range in results.values_list(*selected_fields):
+			if not bib:
+				continue
+			bib=strip_trailing_punctuation(strip_hyperlinks(unwrap_blocks(bib)))
+			if not bib:
+				continue
+			page_ranges=bibs.setdefault(bib,set())
+			if page_range:
+				page_range=strip_hyperlinks(page_range)
+				if page_range:
+					page_ranges.add(page_range)
+		resp=[
+			f"{bib} ({'; '.join(sorted(bibs[bib],key=natural_key))})." if bibs[bib] else f"{bib}."
+			for bib in sorted(bibs,key=natural_key)
+		]
+		if DEBUG:
+			print("Internal Response Time:",time.time()-st,"\n+++++++")
+		return JsonResponse(resp,safe=False,status=200)
+
 @extend_schema(tags=['exclude_mcp'])
 class VoyageGeoTreeFilter(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]

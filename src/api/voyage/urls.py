@@ -6,6 +6,7 @@ urlpatterns = [
     #MAIN ENDPOINTS FOR POST REQUESTS (BUILT FOR VOYAGES-FRONTEND)
     path('', views.VoyageList.as_view()),
     path('dataframes/',views.VoyageDataFrames.as_view()),
+    path('bibliography/',views.VoyageBibliography.as_view()),
     path('aggregations/',views.VoyageAggregations.as_view()),
 	path('piecharts/',views.VoyagePieCharts.as_view()),
 	path('lineandbarcharts/',views.VoyageLineAndBarCharts.as_view()),
