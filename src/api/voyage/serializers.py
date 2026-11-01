@@ -877,7 +877,7 @@ class VoyageCrossTabRequestSerializer(serializers.Serializer):
 	agg_fn=serializers.ChoiceField(choices=["mean","sum","max","min","count"])
 	offset=serializers.IntegerField(required=False)
 	limit=serializers.IntegerField(required=False)
-	order_by=serializers.ListField(child=serializers.ChoiceField(choices=[k for k in big_df]),required=False)
+	order_by=serializers.ListField(child=serializers.CharField(),required=False)
 	global_search=serializers.CharField(required=False)
 	filter=VoyageFilterItemSerializer(many=True,required=False)
 	csv_output=serializers.ChoiceField(

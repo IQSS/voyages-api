@@ -713,27 +713,6 @@ def crosstabs():
 	offset=rdata.get('offset') or 0
 	binsize=rdata.get('binsize')
 	order_by=rdata.get('order_by')
-	if order_by is not None and order_by not in [['Year range'],['-Year range']]:
-		
-		ascending=True
-		order_by=order_by[0]
-		if order_by.startswith("-"):
-			ascending=False
-			order_by=order_by[1:]
-		order_by_list=order_by.split('__')
-		order_by_list=tuple(order_by_list)
-	else:
-		if type(order_by)==list:
-			if order_by[0].startswith("-"):
-				ascending=False
-			else:
-				ascending=True
-		else:
-			ascending=False
-		order_by_list=(rows,)
-	
-	if len(order_by_list)==1:
-		order_by_list=order_by_list[0]
 	
 	normalize=rdata.get('normalize')
 	if normalize is not None:
@@ -822,9 +801,6 @@ def crosstabs():
 		)
 		ct=ct.fillna(0)
 		
-		if order_by_list in [rows,"-"+rows]:
-			order_by_list='row_bins'
-		
 	else:
 		ct=pd.crosstab(
 			df[rows],
@@ -841,12 +817,30 @@ def crosstabs():
 	else:
 		mlctuples=list(ct.columns)
 	
-# 	print("TABLE TUPLES",mlctuples)
-#
-# 	print(order_by_list,type(order_by_list),type(order_by_list)==tuple)
-		
-	if order_by is not None:
-		ct=ct.sort_values(by=order_by_list,ascending=ascending)
+	indexcol_name=rdata.get('rows_label') or ''
+	
+	if order_by:
+		ob=order_by[0] or ''
+		ascending=not ob.startswith('-')
+		ob_key=ob[1:] if not ascending else ob
+		col_keys={
+			("__".join([i if type(i)!=int else "Undefined" for i in c]) if c[0]!='All' else 'All'):col
+			for c,col in zip(mlctuples,ct.columns)
+		}
+		if 'All' in ct.index:
+			margin=ct.loc[['All']]
+			body=ct.drop(index='All')
+		else:
+			margin=None
+			body=ct
+		if ob_key in [indexcol_name,rows]:
+			body=body.sort_index(ascending=ascending)
+		elif ob_key in col_keys:
+			body=body.sort_values(by=col_keys[ob_key],ascending=ascending,kind='mergesort')
+		if margin is not None:
+			ct=pd.concat([body,margin])
+		else:
+			ct=body
 	
 	
 	def makechild(name,isfield=False,columngroupshow=False,key=None,dtype=None):
@@ -926,7 +920,6 @@ def crosstabs():
 		return colgroups
 	
 	colgroups=[]	
-	indexcol_name=rdata.get('rows_label') or ''
 	indexcolcg=makechild('',isfield=False)
 	indexcolfield=makechild(indexcol_name,isfield=True,key=indexcol_name,dtype="str")
 	indexcolfield['pinned']='left'
