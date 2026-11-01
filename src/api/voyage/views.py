@@ -19,6 +19,7 @@ import redis
 import hashlib
 from rest_framework import filters,serializers
 from common.reqs import autocomplete_req,post_req,get_fieldstats,paginate_queryset,clean_long_df,use_redis
+from common.connections import fetch_connections_counts
 from geo.common import GeoTreeFilter
 from geo.serializers import LocationSerializerDeep
 import collections
@@ -76,16 +77,18 @@ class VoyageList(generics.GenericAPIView):
 			if error_messages:
 				return(JsonResponse(error_messages,safe=False,status=400))
 
+			results=list(results)
+			connections_counts=fetch_connections_counts('voyages',[r.id for r in results])
 			resp=VoyageListResponseSerializer({
 				'count':results_count,
 				'page':page,
 				'page_size':page_size,
 				'results':results
-			}).data
+			},context={'connections_counts':connections_counts}).data
 			#I'm having the most difficult time in the world validating this nested paginated response
 			#And I cannot quite figure out how to just use the built-in paginator without moving to urlparams
 			#SAVE THIS NEW RESPONSE TO THE REDIS CACHE
-			if USE_REDIS_CACHE:
+			if USE_REDIS_CACHE and connections_counts is not None:
 				redis_cache.set(hashed,json.dumps(resp))
 		else:
 			if DEBUG:
@@ -715,8 +718,13 @@ class VoyageGET(generics.RetrieveAPIView):
 	GET one voyage by its ID (for card view)
 	'''
 	queryset=Voyage.objects.all()
-	serializer_class=VoyageSerializer
+	serializer_class=VoyageListItemSerializer
 	lookup_field='voyage_id'
+	def retrieve(self,request,*args,**kwargs):
+		instance=self.get_object()
+		context=self.get_serializer_context()
+		context['connections_counts']=fetch_connections_counts('voyages',[instance.id])
+		return Response(self.get_serializer_class()(instance,context=context).data)
 
 class CargoTypeList(generics.ListAPIView):
 	'''

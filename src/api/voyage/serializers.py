@@ -12,6 +12,7 @@ from common.static.Stats_Options import *
 from common.autocomplete_indices import get_all_model_autocomplete_fields
 from voyage.cross_filter_fields import VoyageBasicFilterVarNames
 from drf_spectacular.utils import extend_schema_field
+from common.connections import connections_count_for
 from rest_framework import serializers
 import requests
 import time
@@ -457,11 +458,16 @@ class VoyageListRequestSerializer(serializers.Serializer):
 	order_by=serializers.ListField(child=serializers.CharField(),required=False)
 	global_search=serializers.CharField(required=False)
 
+class VoyageListItemSerializer(VoyageSerializer):
+	connections_count=serializers.SerializerMethodField(allow_null=True)
+	def get_connections_count(self,instance) -> serializers.IntegerField(allow_null=True):
+		return connections_count_for(self,instance)
+
 class VoyageListResponseSerializer(serializers.Serializer):
 	page=serializers.IntegerField()
 	page_size=serializers.IntegerField()
 	count=serializers.IntegerField()
-	results=VoyageSerializer(many=True,read_only=True,required=False)
+	results=VoyageListItemSerializer(many=True,read_only=True,required=False)
 
 
 ############ LINE, BAR, AND PIE CHARTS

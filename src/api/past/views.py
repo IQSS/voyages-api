@@ -19,6 +19,7 @@ import redis
 import hashlib
 import pprint
 from common.reqs import autocomplete_req,post_req,get_fieldstats,paginate_queryset,clean_long_df
+from common.connections import fetch_connections_counts
 from collections import Counter
 from geo.common import GeoTreeFilter
 from geo.serializers import LocationSerializer,LocationSerializerDeep
@@ -100,19 +101,21 @@ class EnslavedList(generics.GenericAPIView):
 			
 			if DEBUG:
 				print(f'QUERYSET TIME: {time.time()-st3}')
+			results=list(results)
+			connections_counts=fetch_connections_counts('enslaved',[r.id for r in results])
 			st5=time.time()
 			resp=EnslavedListResponseSerializer({
 				'count':results_count,
 				'page':page,
 				'page_size':page_size,
 				'results':results
-			}).data
+			},context={'connections_counts':connections_counts}).data
 			if DEBUG:
 				print(f'SERIALIZATION TIME: {time.time()-st5}')
 			#I'm having the most difficult time in the world validating this nested paginated response
 			#And I cannot quite figure out how to just use the built-in paginator without moving to urlparams
 			#SAVE THIS NEW RESPONSE TO THE REDIS CACHE
-			if USE_REDIS_CACHE:
+			if USE_REDIS_CACHE and connections_counts is not None:
 				redis_cache.set(hashed,json.dumps(resp))
 		else:
 			resp=json.loads(cached_response)
@@ -223,16 +226,18 @@ class EnslaverList(generics.GenericAPIView):
 			if error_messages:
 				return(JsonResponse(error_messages,safe=False,status=400))
 
+			results=list(results)
+			connections_counts=fetch_connections_counts('enslavers',[r.id for r in results])
 			resp=EnslaverListResponseSerializer({
 				'count':results_count,
 				'page':page,
 				'page_size':page_size,
 				'results':results
-			}).data
+			},context={'connections_counts':connections_counts}).data
 			#I'm having the most difficult time in the world validating this nested paginated response
 			#And I cannot quite figure out how to just use the built-in paginator without moving to urlparams
 			#SAVE THIS NEW RESPONSE TO THE REDIS CACHE
-			if USE_REDIS_CACHE:
+			if USE_REDIS_CACHE and connections_counts is not None:
 				redis_cache.set(hashed,json.dumps(resp))
 		else:
 			if DEBUG:
@@ -853,20 +858,30 @@ class EnslaverGET(generics.RetrieveAPIView):
 	Retrieve an enslaver record with their pk
 	'''
 	queryset=EnslaverIdentity.objects.all()
-	serializer_class=EnslaverIdentitySerializer
+	serializer_class=EnslaverListItemSerializer
 	lookup_field='id'
 	authentication_classes=[TokenAuthentication]
 	permission_classes=[IsAuthenticated]
+	def retrieve(self,request,*args,**kwargs):
+		instance=self.get_object()
+		context=self.get_serializer_context()
+		context['connections_counts']=fetch_connections_counts('enslavers',[instance.id])
+		return Response(self.get_serializer_class()(instance,context=context).data)
 
 class EnslavedGET(generics.RetrieveAPIView):
 	'''
 	Retrieve an enslaver record with their pk
 	'''
 	queryset=Enslaved.objects.all()
-	serializer_class=EnslavedSerializer
+	serializer_class=EnslavedListItemSerializer
 	lookup_field='enslaved_id'
 	authentication_classes=[TokenAuthentication]
 	permission_classes=[IsAuthenticated]
+	def retrieve(self,request,*args,**kwargs):
+		instance=self.get_object()
+		context=self.get_serializer_context()
+		context['connections_counts']=fetch_connections_counts('enslaved',[instance.id])
+		return Response(self.get_serializer_class()(instance,context=context).data)
 	
 class EnslavedVoyageOutcome(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]

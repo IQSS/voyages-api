@@ -1,2 +1,4 @@
 DJANGO_BASE_URL="http://voyages-api:8000/"
 DJANGO_AUTH_KEY="Token ABCDEFG"
+PEOPLE_NETWORKS_HOPS={"enslaved":3,"enslavers":2,"voyages":2,"enslavement_relations":2}
+CONNECTIONS_INDEX_WORKERS=4

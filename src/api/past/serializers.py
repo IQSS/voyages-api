@@ -14,6 +14,7 @@ from common.autocomplete_indices import get_all_model_autocomplete_fields
 from past.cross_filter_fields import EnslaverBasicFilterVarNames,EnslavedBasicFilterVarNames
 from django.core.exceptions import ObjectDoesNotExist
 from drf_spectacular.utils import extend_schema_field
+from common.connections import connections_count_for
 
 
 
@@ -471,11 +472,16 @@ class EnslavedListRequestSerializer(serializers.Serializer):
 	order_by=serializers.ListField(child=serializers.CharField(required=False),required=False)
 	global_search=serializers.CharField(required=False)
 
+class EnslavedListItemSerializer(EnslavedSerializer):
+	connections_count=serializers.SerializerMethodField(allow_null=True)
+	def get_connections_count(self,instance) -> serializers.IntegerField(allow_null=True):
+		return connections_count_for(self,instance)
+
 class EnslavedListResponseSerializer(serializers.Serializer):
 	page=serializers.IntegerField(required=False)
 	page_size=serializers.IntegerField(required=False)
 	count=serializers.IntegerField(required=False)
-	results=EnslavedSerializer(many=True,allow_null=True)
+	results=EnslavedListItemSerializer(many=True,allow_null=True)
 
 ########### PAGINATED ENSLAVER LISTS 
 @extend_schema_serializer(
@@ -511,11 +517,18 @@ class EnslaverListRequestSerializer(serializers.Serializer):
 	order_by=serializers.ListField(child=serializers.CharField(required=False),required=False)
 	global_search=serializers.CharField(required=False)
 	
+class EnslaverListItemSerializer(EnslaverIdentitySerializer):
+	connections_count=serializers.SerializerMethodField(allow_null=True)
+	def get_connections_count(self,instance) -> serializers.IntegerField(allow_null=True):
+		return connections_count_for(self,instance)
+	class Meta(EnslaverIdentitySerializer.Meta):
+		fields=list(EnslaverIdentitySerializer.Meta.fields)+['connections_count']
+
 class EnslaverListResponseSerializer(serializers.Serializer):
 	page=serializers.IntegerField(required=False)
 	page_size=serializers.IntegerField(required=False)
 	count=serializers.IntegerField(required=False)
-	results=EnslaverIdentitySerializer(many=True,allow_null=True)
+	results=EnslaverListItemSerializer(many=True,allow_null=True)
 
 ############ AUTOCOMPLETE SERIALIZERS
 @extend_schema_serializer(

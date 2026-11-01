@@ -68,6 +68,26 @@ G=load_graph()
 # 		break
 print("finished building graphs in %d seconds" %int(time.time()-st))
 
+HOPS={
+	"enslaved":3,
+	"enslavers":2,
+	"voyages":2,
+	"enslavement_relations":2,
+	**globals().get('PEOPLE_NETWORKS_HOPS',{})
+}
+
+st=time.time()
+try:
+	CONNECTIONS_INDEX=build_connections_index(
+		G,
+		HOPS,
+		workers=globals().get('CONNECTIONS_INDEX_WORKERS',1)
+	)
+	print("finished building connections index of %d nodes in %d seconds" %(len(CONNECTIONS_INDEX),int(time.time()-st)))
+except Exception as e:
+	CONNECTIONS_INDEX=None
+	print("connections index failed:",e)
+
 
 @app.route('/',methods=['POST'])
 def network_maps():
@@ -79,7 +99,7 @@ def network_maps():
 		voyages
 		enslavement_relations
 	returns nodes and edges with attributes
-	we're now giving back 1 hop (but passing through some intermediary nodes (see utils.py))
+	hops per node class come from PEOPLE_NETWORKS_HOPS in localsettings (enslavement relation nodes don't count as a hop)
 	'''
 # 	print("received",request.json)
 	
@@ -95,11 +115,7 @@ def network_maps():
 			gquery=[{"==":[('node_class',),nodeclass]},{":=":[('id',),node_id_int_list]}]
 			querynodes=search_nodes(G, {"and":gquery})
 			for n in querynodes:
-				nodeclass=G.nodes[n]['node_class']
-				if nodeclass=='enslaved':
-					levels=3
-				else:
-					levels=2
+				levels=HOPS.get(G.nodes[n]['node_class'],2)
 # 				print("getting node",n)
 				nodes_dict,edges_list=add_neighbors(G,nodes_dict,n,edges_list,levels=levels)
 # 				nodes_dict,edges=add_predecessors(G,nodes_dict,n,edges)
@@ -128,4 +144,28 @@ def network_maps():
 	st=time.time()
 	rdata=request.json
 	
+	return jsonify(output)
+
+
+@app.route('/counts/',methods=['POST'])
+def connections_counts():
+	
+	'''
+	accepts the same id arrays as the network endpoint and returns, per node class,
+	the number of other nodes that endpoint would return for each id
+	'''
+	
+	if CONNECTIONS_INDEX is None:
+		abort(503)
+	
+	rdata=request.json or {}
+	output={}
+	for nodeclass in ['enslaved','enslavers','voyages','enslavement_relations']:
+		node_id_list=rdata.get(nodeclass)
+		if node_id_list is not None:
+			output[nodeclass]={
+				str(i):CONNECTIONS_INDEX[(nodeclass,int(i))]
+				for i in node_id_list
+				if (nodeclass,int(i)) in CONNECTIONS_INDEX
+			}
 	return jsonify(output)
