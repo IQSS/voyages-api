@@ -42,8 +42,8 @@ class ReplayedChangeSetTests(TestCase):
     def setUp(self):
         for row in self.fixture["seed"]:
             _model_for_table(row["table"]).objects.create(pk=row["pk"], **row["fields"])
-        # A step names a row an earlier step created by the temporary id that
-        # created it. Publication answers with the database ids it assigned.
+        # Later steps name existing entities as the contribution client does:
+        # public voyage numbers for Voyage, database IDs for other schemas.
         self.resolved = {}
 
     def _publish(self, step):
@@ -55,10 +55,18 @@ class ReplayedChangeSetTests(TestCase):
             created_at=None,
         )
         task.changeset = changeset
-        self.resolved.update(ChangeSetProcessor().process_changeset(task))
+        mappings = ChangeSetProcessor().process_changeset(task)
+        for update in changeset.get("updates", []):
+            ref = update["entityRef"]
+            if ref["type"] == "new":
+                assigned = mappings[ref["id"]]
+                self.resolved[ref["id"]] = (
+                    Voyage.objects.get(pk=assigned).voyage_id
+                    if ref["schema"] == "Voyage" else assigned
+                )
 
     def _substitute(self, changeset):
-        """Replace temporary ids with the database ids publication assigned."""
+        """Replace temporary IDs with the existing entity references used by Node."""
         raw = json.dumps(changeset)
         for temp_id, db_id in self.resolved.items():
             raw = raw.replace('"%s"' % temp_id, json.dumps(db_id))
