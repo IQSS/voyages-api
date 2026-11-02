@@ -15,6 +15,7 @@ from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.db import models
 from geo.common import GeoTreeFilter
+from voyage.models import Voyage
 import json
 import logging
 from rest_framework.decorators import api_view, permission_classes
@@ -426,7 +427,7 @@ class ChangeSetProcessor:
         model_class = self._get_model_class(entity_ref['schema'])
 
         try:
-            obj = model_class.objects.get(pk=entity_ref['id'])
+            obj = model_class.objects.get(**self._entity_lookup(model_class, entity_ref['id']))
             obj.delete()
             logger.debug(f"Deleted {entity_ref['schema']} with id {entity_ref['id']}")
         except model_class.DoesNotExist:
@@ -460,7 +461,7 @@ class ChangeSetProcessor:
         model_class = self._get_model_class(entity_ref['schema'])
 
         try:
-            obj = model_class.objects.get(pk=entity_ref['id'])
+            obj = model_class.objects.get(**self._entity_lookup(model_class, entity_ref['id']))
 
             # Apply changes
             for change in update['changes']:
@@ -475,6 +476,13 @@ class ChangeSetProcessor:
         except model_class.DoesNotExist:
             raise ValueError(f"Entity {entity_ref['schema']} with id {entity_ref['id']} not found for update")
 
+    @staticmethod
+    def _entity_lookup(model_class, identifier):
+        # Voyage contribution references expose the public number; child
+        # relations and every other schema retain their database primary key.
+        field = 'voyage_id' if model_class is Voyage else 'pk'
+        return {field: identifier}
+
     def _resolve_value(self, model_class, column, change):
         value = change['changed']
         field = next(f for f in model_class._meta.fields if f.attname == column)
@@ -486,6 +494,11 @@ class ChangeSetProcessor:
             if value not in self.temp_id_to_db_id:
                 raise ValueError(f'Foreign key references unprocessed entity: {value}')
             value = self.temp_id_to_db_id[value]
+        elif field.is_relation and field.related_model is Voyage and value is not None:
+            try:
+                value = Voyage.objects.get(voyage_id=value).pk
+            except Voyage.DoesNotExist:
+                raise ValueError(f'Voyage with public id {value} not found') from None
         return value
 
     def _get_model_class(self, schema_name: str):
