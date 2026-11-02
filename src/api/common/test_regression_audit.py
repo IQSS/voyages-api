@@ -98,6 +98,66 @@ class ExistingPublicBehaviorAudit(TestCase):
                 self.assertEqual(final_column.target, Voyage._meta.pk)
                 self.assertEqual(final_column.alias, rows.query.base_table)
 
+    def test_related_voyage_sort_does_not_duplicate_enslaved_pages(self):
+        """Sorting related voyages must return each person once, in page order."""
+        import json
+
+        from past.models import (
+            Enslaved, EnslavedInRelation, EnslavementRelation,
+            EnslavementRelationType,
+        )
+        from past.views import EnslavedList
+        from voyage.models import Voyage, VoyageItinerary, VoyageOutcome
+
+        relation_type = EnslavementRelationType.objects.create(name="Audit voyage")
+        people = [Enslaved.objects.create(enslaved_id=993000 + index)
+                  for index in range(5)]
+        for person, years in zip(people, [[1700, 1900], [1800], [1700, None], [], []]):
+            for year in years:
+                voyage = Voyage.objects.create(voyage_id=994000 + Voyage.objects.count(), dataset=0)
+                VoyageItinerary.objects.create(voyage=voyage)
+                VoyageOutcome.objects.create(voyage=voyage)
+                date = VoyageSparseDate.objects.create(year=year)
+                VoyageDates.objects.create(voyage=voyage, imp_arrival_at_port_of_dis_sparsedate=date)
+                relation = EnslavementRelation.objects.create(relation_type=relation_type, voyage=voyage)
+                EnslavedInRelation.objects.create(enslaved=person, relation=relation)
+
+        ids = [person.pk for person in people[:4]]
+        field = "enslaved_relations__relation__voyage__voyage_dates__imp_arrival_at_port_of_dis_sparsedate__year"
+        search_results = SimpleNamespace(docs=[{"id": value} for value in ids])
+        for prefix, expected in [("-", [ids[0], ids[2], ids[1], ids[3]]),
+                                 ("", [ids[0], ids[1], ids[2], ids[3]])]:
+            for search in [False, True]:
+                for page_size in [1, 2]:
+                    with self.subTest(prefix=prefix, search=search, page_size=page_size):
+                        actual = []
+                        for page_number in range(1, len(ids) // page_size + 1):
+                            payload = {"order_by": [prefix + field], "page": page_number,
+                                       "page_size": page_size}
+                            if search:
+                                payload["global_search"] = "Audit geography"
+                            else:
+                                payload["filter"] = [{"varName": "id", "op": "in", "searchTerm": ids}]
+                            with patch("common.reqs.pysolr.Solr") as solr:
+                                solr.return_value.search.return_value = search_results
+                                response = EnslavedList.as_view()(authenticated("/past/enslaved/", payload))
+                            self.assertEqual(response.status_code, 200)
+                            body = json.loads(response.content)
+                            self.assertEqual((body["count"], body["page_size"]), (4, page_size))
+                            received = [row["id"] for row in body["results"]]
+                            offset = (page_number - 1) * page_size
+                            self.assertEqual(received, expected[offset:offset + page_size])
+                            actual.extend(received)
+                        self.assertEqual(actual, expected)
+                        self.assertEqual(len(set(actual)), 4)
+
+        empty = EnslavedList.as_view()(authenticated("/past/enslaved/", {
+            "filter": [{"varName": "id", "op": "in", "searchTerm": [-1]}],
+            "order_by": [field], "page": 1, "page_size": 12,
+        }))
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(json.loads(empty.content)["results"], [])
+
     def test_default_and_explicit_unique_order_preserve_direction(self):
         from common.static.Voyage_options import Voyage_options
         from voyage.models import Voyage
