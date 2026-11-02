@@ -20,6 +20,7 @@ OPEN_API_BASE_URL="https://127.0.0.1:8000/"
 
 GEO_NETWORKS_BASE_URL="http://voyages-geo-networks:5005/"
 PEOPLE_NETWORKS_BASE_URL="http://voyages-people-networks:5006/"
+PEOPLE_NETWORKS_TIMEOUT=2
 STATS_BASE_URL="http://voyages-stats:5000/"
 
 REDIS_HOST="voyages-redis"

@@ -24,6 +24,7 @@ FROM base AS build
 RUN apt-get update -y \
     && apt-get install --yes --no-upgrade --no-install-recommends \
 	    build-essential \
+	    pkg-config \
     && apt-get clean \
     && rm -rf \
         /tmp/* \

@@ -7,6 +7,8 @@ import itertools
 from networkx_query import search_nodes, search_edges
 import uuid
 import time
+from collections import deque
+from multiprocessing import Pool
 
 def add_nodes(G,long_dataframe,selected_fields,node_class):
 	output_dict={}
@@ -355,3 +357,53 @@ def add_neighbors(G,nodes_dict,n,edges_list,levels=1):
 			nodes_dict[other]=otherdata
 	nodes_dict[n]=selfdata
 	return(nodes_dict,edges_list)
+
+
+def reachable_count(G,n,levels):
+	best={n:0}
+	queue=deque([n])
+	while queue:
+		node=queue.popleft()
+		cost=best[node]
+		if cost>=levels:
+			continue
+		for other in G.neighbors(node):
+			step=0 if G.nodes[other]['node_class']=='enslavement_relations' else 1
+			other_cost=cost+step
+			if other_cost<best.get(other,levels+1):
+				best[other]=other_cost
+				if step==0:
+					queue.appendleft(other)
+				else:
+					queue.append(other)
+	return len(best)-1
+
+_index_graph=None
+
+def _init_index_worker(graph):
+	global _index_graph
+	_index_graph=graph
+
+def _index_count(item):
+	n,levels=item
+	return reachable_count(_index_graph,n,levels)
+
+def build_connections_index(G,hops,workers=1):
+	groups={}
+	for n,data in G.nodes(data=True):
+		levels=hops.get(data['node_class'],2)
+		signature=(data['node_class'],levels,frozenset(G.neighbors(n)))
+		groups.setdefault(signature,[]).append(n)
+	print("connections index: %d nodes in %d neighbor groups" %(G.number_of_nodes(),len(groups)))
+	items=[(members[0],signature[1]) for signature,members in groups.items()]
+	if workers>1:
+		with Pool(workers,initializer=_init_index_worker,initargs=(G,)) as p:
+			counts=p.map(_index_count,items,chunksize=2000)
+	else:
+		_init_index_worker(G)
+		counts=[_index_count(item) for item in items]
+	index={}
+	for members,count in zip(groups.values(),counts):
+		for n in members:
+			index[(G.nodes[n]['node_class'],int(G.nodes[n]['id']))]=count
+	return index

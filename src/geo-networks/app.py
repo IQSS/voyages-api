@@ -90,8 +90,8 @@ def rebuild_pickles():
 				pk_var,
 				itinerary_vars,
 				weight_vars,
-				linklabels,
 				nodelabels,
+				linklabels,
 				rebuilder_number_of_workers=rebuilder_number_of_workers
 			)
 			with open(picklefilepath, 'wb') as f:
@@ -158,7 +158,8 @@ def network_maps():
 	nodesdata=registered_caches[cachename]['graphs'][graphname]['index']['nodesdata']
 	edgesdata=registered_caches[cachename]['graphs'][graphname]['index']['edgesdata']
 	
-	aggnodes=nodes[nodes['pk'].isin(pks)].drop(columns=(['pk'])).groupby('id').agg('sum')
+	selnodes=nodes[nodes['pk'].isin(pks)]
+	aggnodes=selnodes.drop(columns=(['pk'])).groupby('id').agg('sum')
 	
 	finalnodes=[
 		{	
@@ -179,6 +180,17 @@ def network_maps():
 	
 	aggedges=aggedges[aggedges['weight']>0]
 	aggedges=aggedges[aggedges['pk'].isin(pks)]
+	
+	voyage_mappings={}
+	finalnode_ids={n['id'] for n in finalnodes}
+	for pk,node_id in selnodes[['pk','id']].itertuples(index=False):
+		if node_id in finalnode_ids:
+			mapping=voyage_mappings.setdefault(str(int(pk)),{'nodes':[],'edges':[]})
+			if node_id not in mapping['nodes']:
+				mapping['nodes'].append(node_id)
+	for pk,source,target in aggedges[['pk','source','target']].itertuples(index=False):
+		mapping=voyage_mappings.setdefault(str(int(pk)),{'nodes':[],'edges':[]})
+		mapping['edges'].append([source,target])
 	
 # 	print("unique pks",len(aggedges['pk'].unique()))
 	
@@ -207,4 +219,4 @@ def network_maps():
 # 	for node in finalnodes:
 # 		print(node)
 	
-	return(jsonify({'nodes':finalnodes,'edges':finaledges}))
+	return(jsonify({'nodes':finalnodes,'edges':finaledges,'voyage_mappings':voyage_mappings}))

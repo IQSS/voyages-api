@@ -301,13 +301,6 @@ def curvedab(A,B,C,prev_controlXY,smoothing=0.15):
 	
 	return Control,nextControl,overshoot_corrected
 	
-def straightab(A,B,ab_id,result):
-	midx=(A[0]+B[0])/2
-	midy=(A[1]+B[1])/2
-	Control=(midx,midy)
-	result[ab_id]=[[[A, B], [Control, Control]]]
-	isstraight=True
-	return result,Control
 
 def retrieve_nodeXY(node):
 	nodeX=node['data']['lat']
@@ -478,20 +471,29 @@ def add_stripped_node_to_dict(graph,n_id,nodesdict):
 	return nodesdict
 	
 
+_worker_graph=None
+_worker_oceanic_subgraph_view=None
+_worker_uuid_to_node={}
+
+def init_map_data_worker(graph):
+	global _worker_graph,_worker_oceanic_subgraph_view,_worker_uuid_to_node
+	_worker_graph=graph
+	def oceanic_edge_filter(s,t):
+		edgetags=graph[s][t].get("tags")
+		return "oceanic_leg" in edgetags or "embarkation_to_onramp" in edgetags or "offramp_to_disembarkation" in edgetags
+	_worker_oceanic_subgraph_view=nx.subgraph_view(graph,filter_edge=oceanic_edge_filter)
+	_worker_uuid_to_node={}
+	for n_id,data in graph.nodes(data=True):
+		if 'uuid' in data:
+			_worker_uuid_to_node.setdefault(data['uuid'],n_id)
+
 def get_map_data(payload):
 	
 # 	print(payload)
 	
-	work_item,pk_var,itinerary_vars,weight_var,graph,nodelabels,linklabels=payload
-	
-	def oceanic_edge_filter(s,t):
-		edgetags=graph[s][t].get("tags")
-		if "oceanic_leg" in edgetags or "embarkation_to_onramp" in edgetags or "offramp_to_disembarkation" in edgetags:
-			return True
-		else:
-			return False
-
-	oceanic_subgraph_view=nx.subgraph_view(graph,filter_edge=oceanic_edge_filter)
+	work_item,pk_var,itinerary_vars,weight_var,nodelabels,linklabels=payload
+	graph=_worker_graph
+	oceanic_subgraph_view=_worker_oceanic_subgraph_view
 	pk=work_item[pk_var]
 	itinerary=[work_item[iv] for iv in itinerary_vars]
 # 	print(itinerary,nodelabels,linklabels)
@@ -546,8 +548,8 @@ def get_map_data(payload):
 				thispath={"nodes":[],"weight":weight}
 		else:
 			a_uuid,b_uuid=abpair
-			amatch=next(iter([n for n in search_nodes(graph,{"==":["uuid",a_uuid]})]),None)
-			bmatch=next(iter([n for n in search_nodes(graph,{"==":["uuid",b_uuid]})]),None)
+			amatch=_worker_uuid_to_node.get(a_uuid)
+			bmatch=_worker_uuid_to_node.get(b_uuid)
 			#the db can still return path node uuid's for places that don't have good geo data (nulled or zeroed lat/long)
 			#so we have to screen those out, as they have been excluded from the networkx graph db
 			if amatch is not None and bmatch is not None:
@@ -746,11 +748,11 @@ def build_index(endpoint,graph,oceanic_subgraph_view,pk_var,itinerary_vars,weigh
 	
 	print(f"ALL RESULTS: {len(results[pk_var])}")
 	
-	results_pivoted=[[{k:results[k][i] for k in results},pk_var,itinerary_vars,weight_var,graph,linklabels,nodelabels] for i in range(len(results[pk_var]))]
+	results_pivoted=[[{k:results[k][i] for k in results},pk_var,itinerary_vars,weight_var,nodelabels,linklabels] for i in range(len(results[pk_var]))]
 		
 	print(f"REBUILDING WITH {rebuilder_number_of_workers} WORKERS")
 	
-	with multiprocessing.Pool(rebuilder_number_of_workers) as p:
+	with multiprocessing.Pool(rebuilder_number_of_workers,initializer=init_map_data_worker,initargs=(graph,)) as p:
 		proc_results=p.map(get_map_data, results_pivoted)
 	
 	nodesdfrows=[]
