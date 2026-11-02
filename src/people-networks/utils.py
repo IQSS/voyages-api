@@ -389,12 +389,21 @@ def _index_count(item):
 	return reachable_count(_index_graph,n,levels)
 
 def build_connections_index(G,hops,workers=1):
-	items=[(n,hops.get(data['node_class'],2)) for n,data in G.nodes(data=True)]
-	keys=[(G.nodes[n]['node_class'],int(G.nodes[n]['id'])) for n,_ in items]
+	groups={}
+	for n,data in G.nodes(data=True):
+		levels=hops.get(data['node_class'],2)
+		signature=(data['node_class'],levels,frozenset(G.neighbors(n)))
+		groups.setdefault(signature,[]).append(n)
+	print("connections index: %d nodes in %d neighbor groups" %(G.number_of_nodes(),len(groups)))
+	items=[(members[0],signature[1]) for signature,members in groups.items()]
 	if workers>1:
 		with Pool(workers,initializer=_init_index_worker,initargs=(G,)) as p:
 			counts=p.map(_index_count,items,chunksize=2000)
 	else:
 		_init_index_worker(G)
 		counts=[_index_count(item) for item in items]
-	return dict(zip(keys,counts))
+	index={}
+	for members,count in zip(groups.values(),counts):
+		for n in members:
+			index[(G.nodes[n]['node_class'],int(G.nodes[n]['id']))]=count
+	return index

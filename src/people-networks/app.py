@@ -9,6 +9,7 @@ import networkx as nx
 from networkx_query import search_nodes, search_edges
 import re
 import time
+import threading
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 app = Flask(__name__)
@@ -76,17 +77,22 @@ HOPS={
 	**globals().get('PEOPLE_NETWORKS_HOPS',{})
 }
 
-st=time.time()
-try:
-	CONNECTIONS_INDEX=build_connections_index(
-		G,
-		HOPS,
-		workers=globals().get('CONNECTIONS_INDEX_WORKERS',1)
-	)
-	print("finished building connections index of %d nodes in %d seconds" %(len(CONNECTIONS_INDEX),int(time.time()-st)))
-except Exception as e:
-	CONNECTIONS_INDEX=None
-	print("connections index failed:",e)
+CONNECTIONS_INDEX=None
+
+def _build_connections_index_in_background():
+	global CONNECTIONS_INDEX
+	st=time.time()
+	try:
+		CONNECTIONS_INDEX=build_connections_index(
+			G,
+			HOPS,
+			workers=globals().get('CONNECTIONS_INDEX_WORKERS',1)
+		)
+		print("finished building connections index of %d nodes in %d seconds" %(len(CONNECTIONS_INDEX),int(time.time()-st)))
+	except Exception as e:
+		print("connections index failed:",e)
+
+threading.Thread(target=_build_connections_index_in_background,daemon=True).start()
 
 
 @app.route('/',methods=['POST'])
