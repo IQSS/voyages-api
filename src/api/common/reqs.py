@@ -2,7 +2,7 @@ import time
 import json
 import pprint
 import urllib
-from django.db.models import Avg,Sum,Min,Max,Count,Q,F
+from django.db.models import Avg,Sum,Min,Max,Count,Q,F,Case,When,IntegerField
 from django.db.models.aggregates import StdDev
 from voyages3.localsettings import OPEN_API_BASE_URL,DEBUG,SOLR_ENDPOINT,REDIS_HOST,REDIS_PORT,USE_REDIS_CACHE
 import requests
@@ -432,7 +432,10 @@ def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 			end_idx=results_count
 
 		page_ids=ids[offset:end_idx]
-		results=orig_queryset.filter(id__in=page_ids)
+		# Preserve the already deduplicated page without joining related sort fields again.
+		page_order=Case(*[When(pk=pk,then=index) for index,pk in enumerate(page_ids)],
+			output_field=IntegerField())
+		results=orig_queryset.filter(id__in=page_ids).order_by(page_order)
 	else:
 		results=orig_queryset.filter(id__in=ids)
 		page=None
@@ -442,9 +445,9 @@ def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 		print(f"FILTER ON IDS TIME: {time.time()-st}")
 		print(f"FINAL RESULTS COUNT: {results_count}")
 	
-	#one last sort -- the dedupe step (id__in=page_ids) breaks the ordering
-	#so you get the right page of results but not necessarily in the right order
-	results=sort_queryset(results,params,all_fields)
+	# Unpaginated callers still receive a normally ordered QuerySet.
+	if not paginate:
+		results=sort_queryset(results,params,all_fields)
 	
 	return results,results_count,page,page_size,error_messages
 
