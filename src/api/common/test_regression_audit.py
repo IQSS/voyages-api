@@ -36,6 +36,86 @@ class GeoAuthenticationAudit(SimpleTestCase):
 
 
 class ExistingPublicBehaviorAudit(TestCase):
+    def test_tied_voyage_years_have_a_unique_order_across_pages(self):
+        """Equal years must not move voyages between independently fetched pages."""
+        from common.static.Voyage_options import Voyage_options
+        from voyage.models import Voyage
+        from voyage.views import VoyageList
+
+        year_field = "voyage_dates__imp_arrival_at_port_of_dis_sparsedate__year"
+        fixtures = []
+        # Separate public IDs, internal PKs, and related-date insertion order.
+        for index, year in enumerate([1803] * 13 + [1804] * 3 + [None] * 2):
+            voyage = Voyage.objects.create(
+                id=990200 + index, voyage_id=991000 - index, dataset=index % 2,
+            )
+            fixtures.append((voyage, year))
+        for voyage, year in reversed(fixtures):
+            date = VoyageSparseDate.objects.create(year=year)
+            VoyageDates.objects.create(
+                voyage=voyage, imp_arrival_at_port_of_dis_sparsedate=date,
+            )
+
+        for prefix in ["", "-"]:
+            with self.subTest(order_by=prefix + year_field):
+                rows = sort_queryset(
+                    Voyage.objects.all(), {"order_by": [prefix + year_field]},
+                    Voyage_options,
+                )
+                expected = [
+                    voyage.voyage_id
+                    for voyage, year in sorted(
+                        fixtures,
+                        key=lambda item: (
+                            item[1] is None,
+                            (item[1] or 0) * (1 if prefix else -1),
+                            item[0].pk,
+                        ),
+                    )
+                ]
+                for page_size in [4, 12]:
+                    actual = []
+                    for page in range(1, (len(fixtures) - 1) // page_size + 2):
+                        response = VoyageList.as_view()(authenticated(
+                            "/voyage/", {
+                                "order_by": [prefix + year_field],
+                                "page": page, "page_size": page_size,
+                            },
+                        ))
+                        self.assertEqual(response.status_code, 200)
+                        import json
+
+                        payload = json.loads(response.content)
+                        self.assertEqual(payload["count"], len(fixtures))
+                        actual.extend(row["voyage_id"] for row in payload["results"])
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(len(set(actual)), len(fixtures))
+
+                # A coincidental backend tie order is insufficient: the SQL
+                # itself must uniquely order tied rows before page slicing.
+                compiled_order = rows.query.get_compiler(rows.db).get_order_by()
+                final_column = compiled_order[-1][0].expression
+                self.assertEqual(final_column.target, Voyage._meta.pk)
+                self.assertEqual(final_column.alias, rows.query.base_table)
+
+    def test_default_and_explicit_unique_order_preserve_direction(self):
+        from common.static.Voyage_options import Voyage_options
+        from voyage.models import Voyage
+
+        voyages = [
+            Voyage.objects.create(voyage_id=990300 + i, dataset=0) for i in range(3)
+        ]
+        ids = [row.pk for row in voyages]
+        for parameters, expected in [
+            ({}, ids),
+            ({"order_by": []}, ids),
+            ({"order_by": ["-id"]}, ids),
+            ({"order_by": ["id"]}, list(reversed(ids))),
+        ]:
+            with self.subTest(parameters=parameters):
+                rows = sort_queryset(Voyage.objects.all(), parameters, Voyage_options)
+                self.assertEqual(list(rows.values_list("pk", flat=True)), expected)
+
     def test_voyage_cargo_response_uses_connection_amount_and_unit(self):
         from voyage.models import CargoType, CargoUnit, Voyage, VoyageCargoConnection
         from voyage.views import VoyageGET
