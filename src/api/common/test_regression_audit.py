@@ -36,6 +36,31 @@ class GeoAuthenticationAudit(SimpleTestCase):
 
 
 class ExistingPublicBehaviorAudit(TestCase):
+    def test_voyage_cargo_response_uses_connection_amount_and_unit(self):
+        from voyage.models import CargoType, CargoUnit, Voyage, VoyageCargoConnection
+        from voyage.views import VoyageGET
+
+        voyage = Voyage.objects.create(voyage_id=990101, dataset=0)
+        cargo = CargoType.objects.create(name="Sugar")
+        unit = CargoUnit.objects.create(name="Barrels")
+        connection = VoyageCargoConnection.objects.create(
+            voyage=voyage, cargo=cargo, unit=unit, amount=2.0,
+        )
+        for amount, measurement, expected in [
+            (2.0, unit, f"2.0 {unit} Sugar"),
+            (None, unit, f"{unit} Sugar"),
+            (2.0, None, "2.0 Sugar"),
+            (None, None, "Sugar"),
+        ]:
+            with self.subTest(amount=amount, unit=measurement):
+                connection.amount, connection.unit = amount, measurement
+                connection.save()
+                response = VoyageGET.as_view()(
+                    authenticated("/voyage/990101", method="get"), voyage_id=990101,
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["cargo"], [expected])
+
     def test_related_filter_steps_do_not_reapply_previous_alias_predicates(self):
         match = EnslaverIdentity.objects.create(principal_alias="Both")
         other = EnslaverIdentity.objects.create(principal_alias="Only first")
