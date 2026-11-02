@@ -181,6 +181,8 @@ def sort_queryset(filtered_queryset,params,all_fields):
 			
 			qfilterstr=f"filtered_queryset.order_by({oblstr})"
 			filtered_queryset=eval(qfilterstr)			
+		# Equal requested values must not move rows between independent pages.
+		filtered_queryset=filtered_queryset.order_by(*filtered_queryset.query.order_by, 'pk')
 	else:
 		filtered_queryset=filtered_queryset.order_by('id')
 	if DEBUG:
