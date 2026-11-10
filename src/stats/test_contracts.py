@@ -110,6 +110,21 @@ class CrosstabContracts(unittest.TestCase):
         table = self.table(rows='year', rows_label='Year', order_by=['-Year'])
         self.assertEqual(table['rows'], ['1803', '1802', '1801', 'Undefined'])
 
+    def test_row_label_csv_sort_matches_canonical_response_order(self):
+        # The paired client retains these ranks instead of using locale/natural
+        # collation, which would put Alpha 2 before Alpha 10 only in the UI.
+        service.big_df['df']['row'] = ['Zulu', 'Alpha 2', 'Alpha 10', None]
+        ascending = ['Alpha 10', 'Alpha 2', 'Zulu', 'Undefined']
+        self.assertEqual(self.table()['rows'], ascending)
+        for key, expected in [('Origin', ascending),
+                              ('-Origin', ['Zulu', 'Alpha 2', 'Alpha 10', 'Undefined'])]:
+            with self.subTest(key=key):
+                table = self.table(order_by=[key])
+                self.assertEqual(table['rows'], expected)
+                exported = list(csv.reader(io.StringIO(self.response(format='csv', order_by=[key]).data.decode())))
+                self.assertEqual([row[0] for row in exported[-len(expected)-1:-1]], expected)
+                self.assertEqual(exported[-1][0], 'All')
+
     def test_legacy_nan_category_is_undefined(self):
         service.big_df['df'].loc[3, 'col'] = 'nan'
         table = self.table()
