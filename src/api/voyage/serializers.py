@@ -880,6 +880,7 @@ class VoyageCrossTabRequestSerializer(serializers.Serializer):
 		help_text="value_field: quantitative fields only"
 	)
 	binsize=serializers.IntegerField(
+		min_value=1,
 		required=False,
 		allow_null=True,
 		help_text="this field should only be used when the row selector is a year variable"
@@ -887,10 +888,12 @@ class VoyageCrossTabRequestSerializer(serializers.Serializer):
 	rows_label=serializers.CharField(required=False)
 	agg_fn=serializers.ChoiceField(choices=["mean","sum","max","min","count"])
 	offset=serializers.IntegerField(
+		min_value=0,
 		required=False,
 		help_text="optional: first row to return. Omit offset and limit to get every row."
 	)
 	limit=serializers.IntegerField(
+		min_value=0,
 		required=False,
 		help_text="optional: number of rows to return. Omit to get every row."
 	)
@@ -931,7 +934,7 @@ class VoyageCrossTabResponseSerializer(serializers.Serializer):
 	metadata=VoyageCrossTabMetadataSerializer()
 
 class VoyageCrossTabLegacyCSVResponseSerializer(serializers.Serializer):
-	data=serializers.CharField(allow_blank=True)
+	data=serializers.CharField(allow_blank=True,trim_whitespace=False)
 	metadata=VoyageCrossTabMetadataSerializer()
 
 @extend_schema_serializer(

@@ -719,7 +719,7 @@ def crosstabs():
 		col_paths=[]
 	else:
 		undefined_vars=list(dict.fromkeys(columns+([] if bin_labels is not None else [rows])))
-		df=df.assign(**{c:df[c].astype(object).where(df[c].notna(),'Undefined') for c in undefined_vars})
+		df=df.assign(**{c:df[c].astype(object).where(df[c].notna() & df[c].ne('nan'),'Undefined') for c in undefined_vars})
 		
 		ct=pd.crosstab(
 			df[rowkey],
@@ -752,7 +752,10 @@ def crosstabs():
 			ascending=not ob.startswith('-')
 			key=ob[1:] if not ascending else ob
 			if key in [rows_label,rows]:
-				body=body.sort_index(ascending=ascending,kind='mergesort')
+				# Keep missing labels last without comparing strings with numeric rows.
+				known=body.drop(index='Undefined',errors='ignore')
+				unknown=body.loc[body.index=='Undefined']
+				body=pd.concat([known.sort_index(ascending=ascending,kind='mergesort'),unknown])
 			elif key in col_lookup:
 				body=body.sort_values(by=col_lookup[key],ascending=ascending,kind='mergesort')
 	
