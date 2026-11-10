@@ -19,6 +19,7 @@ import redis
 import hashlib
 from rest_framework import filters,serializers
 from common.reqs import autocomplete_req,post_req,get_fieldstats,paginate_queryset,clean_long_df,use_redis
+from common.connections import fetch_connections_counts
 from geo.common import GeoTreeFilter
 from geo.serializers import LocationSerializerDeep
 import collections
@@ -76,16 +77,18 @@ class VoyageList(generics.GenericAPIView):
 			if error_messages:
 				return(JsonResponse(error_messages,safe=False,status=400))
 
+			results=list(results)
+			connections_counts=fetch_connections_counts('voyages',[r.id for r in results])
 			resp=VoyageListResponseSerializer({
 				'count':results_count,
 				'page':page,
 				'page_size':page_size,
 				'results':results
-			}).data
+			},context={'connections_counts':connections_counts}).data
 			#I'm having the most difficult time in the world validating this nested paginated response
 			#And I cannot quite figure out how to just use the built-in paginator without moving to urlparams
 			#SAVE THIS NEW RESPONSE TO THE REDIS CACHE
-			if USE_REDIS_CACHE:
+			if USE_REDIS_CACHE and connections_counts is not None:
 				redis_cache.set(hashed,json.dumps(resp))
 		else:
 			if DEBUG:
@@ -227,10 +230,11 @@ class VoyageCrossTabs(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]
 	permission_classes=[IsAuthenticated]
 	@extend_schema(
-		description="Cross-tab endpoint for aggregations across the dataset. The \
-		'columns' field has cardinality guidance — read its description \
+		description="Cross-tab endpoint for aggregations across the dataset. \
+		Returns every row by default; offset and limit are optional. \
+		The 'columns' field has cardinality guidance — read its description \
 		before selecting a value. \
-		LLM's should use csv_output=True to reduce response size by 87%.",
+		format='csv' returns a text/csv file; LLM's should prefer it to reduce response size.",
 		request=VoyageCrossTabRequestSerializer,
 		responses=VoyageCrossTabResponseSerializer
 	)
@@ -238,15 +242,12 @@ class VoyageCrossTabs(generics.GenericAPIView):
 		st=time.time()
 		if DEBUG:
 			print("VOYAGE CROSSTABS+++++++\nusername:",request.auth.user)
-			
 		
-		#VALIDATE THE REQUEST
 		serialized_req = VoyageCrossTabRequestSerializer(data=request.data)
-		if not serialized_req.is_valid():	
+		if not serialized_req.is_valid():
 			print("malformed crosstabs request:\n",json.dumps(request.data,indent=1))
 			return JsonResponse(serialized_req.errors,status=400)
-
-		#FILTER THE VOYAGES BASED ON THE REQUEST'S FILTER OBJECT
+		
 		queryset=Voyage.objects.all()
 		results,results_count,page,page_size,error_messages=post_req(
 			queryset,
@@ -258,33 +259,35 @@ class VoyageCrossTabs(generics.GenericAPIView):
 		
 		if error_messages:
 			return(JsonResponse(error_messages,safe=False,status=400))
-
-	
-		#MAKE THE CROSSTABS REQUEST TO VOYAGES-STATS
+		
 		ids=[i[0] for i in results.values_list('id')]
 		u2=STATS_BASE_URL+'crosstabs/'
-		params=dict(request.data)
-		stats_req_data=params
+		stats_req_data=dict(request.data)
 		stats_req_data['ids']=ids
-		stats_req_data['cachename']='voyage_pivot_tables'
 		r=requests.post(url=u2,data=json.dumps(stats_req_data),headers={"Content-type":"application/json"})
-		print(r)
-		#VALIDATE THE RESPONSE
-		if r.ok:
-			j=json.loads(r.text)
-			serialized_resp=VoyageCrossTabResponseSerializer(data=j)
-		else:
+		if not r.ok:
 			return JsonResponse({'message':r.text},status=502)
-			
+		
+		if request.data.get('format')=='csv':
+			resp=HttpResponse(r.content,content_type='text/csv; charset=utf-8',status=200)
+			resp['Content-Disposition']='attachment; filename="voyages_pivot_table.csv"'
+			if DEBUG:
+				print("Internal Response Time:",time.time()-st,"\n+++++++")
+			return resp
+		
+		j=json.loads(r.text)
+		if request.data.get('csv_output'):
+			serialized_resp=VoyageCrossTabLegacyCSVResponseSerializer(data=j)
+		else:
+			serialized_resp=VoyageCrossTabResponseSerializer(data=j)
+		
 		if not serialized_resp.is_valid():
 			return JsonResponse(serialized_resp.errors,status=502)
-		else:
-			resp=serialized_resp.data
 		
 		if DEBUG:
 			print("Internal Response Time:",time.time()-st,"\n+++++++")
 		
-		return JsonResponse(resp,safe=False,status=200)
+		return JsonResponse(serialized_resp.data,safe=False,status=200)
 
 class VoyageLineAndBarCharts(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]
@@ -498,6 +501,78 @@ class VoyageDataFrames(generics.GenericAPIView):
 		
 		return JsonResponse(resp,safe=False,status=200)
 
+BIB_FIELD='voyage_source_connections__source__bib'
+PAGE_RANGE_FIELD='voyage_source_connections__page_range'
+
+def strip_hyperlinks(text):
+	text=re.sub(r'</?a\b[^>]*>','',text,flags=re.I)
+	text=re.sub(r'(https?://|www\.)[^\s<>()\[\]]*[^\s<>()\[\].,;:]','',text,flags=re.I)
+	text=re.sub(r'\(\s*\)|\[\s*\]','',text)
+	text=re.sub(r'\s+([,.;:])',r'\1',text)
+	return re.sub(r'\s{2,}',' ',text).strip()
+
+def unwrap_blocks(text):
+	return re.sub(r'</?(div|p)\b[^>]*>',' ',text,flags=re.I)
+
+def strip_trailing_punctuation(text):
+	return re.sub(r'[\s.,;:!?\-–—]+((?:</[^>]+>\s*)*)$',r'\1',text).strip()
+
+def natural_key(text):
+	plain=re.sub(r'<[^>]*>','',text)
+	return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)',plain)]
+
+@extend_schema(tags=['exclude_mcp'])
+class VoyageBibliography(generics.GenericAPIView):
+	authentication_classes=[TokenAuthentication]
+	permission_classes=[IsAuthenticated]
+	@extend_schema(
+		description="Takes a list of voyage ids and returns the deduplicated bibliography of their sources, sorted alphabetically, one string per source: the bib followed by every page range cited for it.",
+		request=VoyageBibliographyRequestSerializer,
+		responses=serializers.ListField(child=serializers.CharField())
+	)
+	def post(self,request):
+		st=time.time()
+		serialized_req=VoyageBibliographyRequestSerializer(data=request.data)
+		if not serialized_req.is_valid():
+			return JsonResponse(serialized_req.errors,status=400)
+		voyage_ids=serialized_req.validated_data['voyage_ids']
+		if not voyage_ids:
+			return JsonResponse([],safe=False,status=200)
+		selected_fields=[BIB_FIELD,PAGE_RANGE_FIELD]
+		params={
+			'filter':[{'varName':'voyage_id','op':'in','searchTerm':voyage_ids}],
+			'selected_fields':selected_fields
+		}
+		results,results_count,page,page_size,error_messages=post_req(
+			Voyage.objects.all(),
+			self,
+			params,
+			Voyage_options,
+			auto_prefetch=True,
+			paginate=False
+		)
+		if error_messages:
+			return(JsonResponse(error_messages,safe=False,status=400))
+		bibs={}
+		for bib,page_range in results.values_list(*selected_fields):
+			if not bib:
+				continue
+			bib=strip_trailing_punctuation(strip_hyperlinks(unwrap_blocks(bib)))
+			if not bib:
+				continue
+			page_ranges=bibs.setdefault(bib,set())
+			if page_range:
+				page_range=strip_hyperlinks(page_range)
+				if page_range:
+					page_ranges.add(page_range)
+		resp=[
+			f"{bib} ({'; '.join(sorted(bibs[bib],key=natural_key))})." if bibs[bib] else f"{bib}."
+			for bib in sorted(bibs,key=natural_key)
+		]
+		if DEBUG:
+			print("Internal Response Time:",time.time()-st,"\n+++++++")
+		return JsonResponse(resp,safe=False,status=200)
+
 @extend_schema(tags=['exclude_mcp'])
 class VoyageGeoTreeFilter(generics.GenericAPIView):
 	authentication_classes=[TokenAuthentication]
@@ -643,8 +718,13 @@ class VoyageGET(generics.RetrieveAPIView):
 	GET one voyage by its ID (for card view)
 	'''
 	queryset=Voyage.objects.all()
-	serializer_class=VoyageSerializer
+	serializer_class=VoyageListItemSerializer
 	lookup_field='voyage_id'
+	def retrieve(self,request,*args,**kwargs):
+		instance=self.get_object()
+		context=self.get_serializer_context()
+		context['connections_counts']=fetch_connections_counts('voyages',[instance.id])
+		return Response(self.get_serializer_class()(instance,context=context).data)
 
 class CargoTypeList(generics.ListAPIView):
 	'''

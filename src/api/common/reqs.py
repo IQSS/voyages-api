@@ -160,31 +160,24 @@ def global_search(orig_queryset,search_string,core_name=None):
 
 def sort_queryset(filtered_queryset,params,all_fields):
 	st=time.time()
-	order_by=params.get('order_by')
-	if order_by is not None:
-		if DEBUG:
-			print(f"------>ORDER BY: {order_by}")
-		obl=[]
-		for ob in order_by:
-			if ob.startswith('-'):
-				k=ob[1:]
-				ascdesc='asc'
-			else:
-				ascdesc='desc'
-				k=ob
-			if k in all_fields:
-				obl.append(k)
-			else:
-				print(f"key is invalid to sort on: {k}")
-			
-			oblstr=','.join([f"F('{k}').{ascdesc}(nulls_last=True)" for k in obl])
-			
-			qfilterstr=f"filtered_queryset.order_by({oblstr})"
-			filtered_queryset=eval(qfilterstr)			
-		# Equal requested values must not move rows between independent pages.
-		filtered_queryset=filtered_queryset.order_by(*filtered_queryset.query.order_by, 'pk')
-	else:
-		filtered_queryset=filtered_queryset.order_by('id')
+	order_by=params.get('order_by') or []
+	if DEBUG:
+		print(f"------>ORDER BY: {order_by}")
+	ordering=[]
+	for ob in order_by:
+		if not ob:
+			continue
+		descending=ob.startswith('-')
+		k=ob[1:] if descending else ob
+		if k not in all_fields:
+			print(f"key is invalid to sort on: {k}")
+			continue
+		if descending:
+			ordering.append(F(k).desc(nulls_last=True))
+		else:
+			ordering.append(F(k).asc(nulls_last=True))
+	ordering.append(F('id').asc())
+	filtered_queryset=filtered_queryset.order_by(*ordering)
 	if DEBUG:
 		print(f"ORDER BY TIME: {time.time()-st}")
 
@@ -438,16 +431,13 @@ def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 		results=orig_queryset.filter(id__in=page_ids).order_by(page_order)
 	else:
 		results=orig_queryset.filter(id__in=ids)
+		results=sort_queryset(results,params,all_fields)
 		page=None
 		page_size=None
 	
 	if DEBUG:
 		print(f"FILTER ON IDS TIME: {time.time()-st}")
 		print(f"FINAL RESULTS COUNT: {results_count}")
-	
-	# Unpaginated callers still receive a normally ordered QuerySet.
-	if not paginate:
-		results=sort_queryset(results,params,all_fields)
 	
 	return results,results_count,page,page_size,error_messages
 

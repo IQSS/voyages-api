@@ -12,6 +12,7 @@ from common.static.Stats_Options import *
 from common.autocomplete_indices import get_all_model_autocomplete_fields
 from voyage.cross_filter_fields import VoyageBasicFilterVarNames
 from drf_spectacular.utils import extend_schema_field
+from common.connections import connections_count_for
 from rest_framework import serializers
 import requests
 import time
@@ -457,11 +458,16 @@ class VoyageListRequestSerializer(serializers.Serializer):
 	order_by=serializers.ListField(child=serializers.CharField(),required=False)
 	global_search=serializers.CharField(required=False)
 
+class VoyageListItemSerializer(VoyageSerializer):
+	connections_count=serializers.SerializerMethodField(allow_null=True)
+	def get_connections_count(self,instance) -> serializers.IntegerField(allow_null=True):
+		return connections_count_for(self,instance)
+
 class VoyageListResponseSerializer(serializers.Serializer):
 	page=serializers.IntegerField()
 	page_size=serializers.IntegerField()
 	count=serializers.IntegerField()
-	results=VoyageSerializer(many=True,read_only=True,required=False)
+	results=VoyageListItemSerializer(many=True,read_only=True,required=False)
 
 
 ############ LINE, BAR, AND PIE CHARTS
@@ -588,6 +594,10 @@ class VoyageLineAndBarChartsRequestSerializer(serializers.Serializer):
 	groupby=VoyageLineAndBarChartParamsRequestSerializer(many=False,allow_null=False,required=True)
 	filter=VoyageFilterItemSerializer(many=True,required=False)
 	global_search=serializers.CharField(required=False)
+
+############ BIBLIOGRAPHY ENDPOINT
+class VoyageBibliographyRequestSerializer(serializers.Serializer):
+	voyage_ids=serializers.ListField(child=serializers.IntegerField())
 
 ############ DATAFRAMES ENDPOINT
 @extend_schema_serializer(
@@ -724,6 +734,7 @@ class VoyageAggRoutesNodesSerializer(serializers.Serializer):
 class VoyageAggRoutesResponseSerializer(serializers.Serializer):
 	edges=serializers.ListField(child=VoyageAggRoutesEdgesSerializer())
 	nodes=serializers.ListField(child=VoyageAggRoutesNodesSerializer())
+	voyage_mappings=serializers.DictField(required=False)
 
 ############ AGGREGATION FIELD
 @extend_schema_serializer(
@@ -869,27 +880,62 @@ class VoyageCrossTabRequestSerializer(serializers.Serializer):
 		help_text="value_field: quantitative fields only"
 	)
 	binsize=serializers.IntegerField(
+		min_value=1,
 		required=False,
 		allow_null=True,
 		help_text="this field should only be used when the row selector is a year variable"
 	)
 	rows_label=serializers.CharField(required=False)
 	agg_fn=serializers.ChoiceField(choices=["mean","sum","max","min","count"])
-	offset=serializers.IntegerField(required=False)
-	limit=serializers.IntegerField(required=False)
-	order_by=serializers.ListField(child=serializers.ChoiceField(choices=[k for k in big_df]),required=False)
+	offset=serializers.IntegerField(
+		min_value=0,
+		required=False,
+		help_text="optional: first row to return. Omit offset and limit to get every row."
+	)
+	limit=serializers.IntegerField(
+		min_value=0,
+		required=False,
+		help_text="optional: number of rows to return. Omit to get every row."
+	)
+	order_by=serializers.ListField(
+		child=serializers.CharField(),
+		required=False,
+		help_text="one key: the rows_label (sort by row) or a column path joined with '__' (e.g. 'Africa__Bight of Benin', or 'All' for the totals column). Prefix with '-' for descending."
+	)
 	global_search=serializers.CharField(required=False)
 	filter=VoyageFilterItemSerializer(many=True,required=False)
+	format=serializers.ChoiceField(
+		choices=["json","csv"],
+		required=False,
+		help_text="json (default) returns the compact table; csv returns a text/csv file with one header row per column level and the totals row last."
+	)
 	csv_output=serializers.ChoiceField(
 		choices=[True,False],
-		help_text="MCP's should request csv format -- reduces output size by 87%",
+		help_text="legacy: returns the csv text inside a JSON object ({data, metadata}). MCP's should request csv -- far smaller than json.",
 		required=False
 	)
-	
+
+class VoyageCrossTabMetadataSerializer(serializers.Serializer):
+	total_results_count=serializers.IntegerField()
+	offset=serializers.IntegerField()
+	limit=serializers.IntegerField(allow_null=True)
+
 class VoyageCrossTabResponseSerializer(serializers.Serializer):
-	tablestructure=serializers.JSONField(required=False,allow_null=True)
-	data=serializers.JSONField()
-	metadata=VoyageOffsetPaginationSerializer()
+	row_label=serializers.CharField(allow_blank=True)
+	column_labels=serializers.ListField(child=serializers.CharField())
+	value_label=serializers.CharField(allow_blank=True)
+	columns=serializers.ListField(
+		child=serializers.ListField(child=serializers.CharField(allow_blank=True)),
+		help_text="one path per column, outermost level first; the totals column is ['All']"
+	)
+	rows=serializers.ListField(child=serializers.CharField(allow_blank=True))
+	values=serializers.JSONField(help_text="one list per row, aligned with columns")
+	totals=serializers.JSONField(help_text="the totals row, aligned with columns")
+	metadata=VoyageCrossTabMetadataSerializer()
+
+class VoyageCrossTabLegacyCSVResponseSerializer(serializers.Serializer):
+	data=serializers.CharField(allow_blank=True,trim_whitespace=False)
+	metadata=VoyageCrossTabMetadataSerializer()
 
 @extend_schema_serializer(
 	examples=[
