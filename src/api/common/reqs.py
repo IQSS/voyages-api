@@ -2,7 +2,7 @@ import time
 import json
 import pprint
 import urllib
-from django.db.models import Avg,Sum,Min,Max,Count,Q,F,Case,When
+from django.db.models import Avg,Sum,Min,Max,Count,Q,F,Case,When,IntegerField
 from django.db.models.aggregates import StdDev
 from voyages3.localsettings import OPEN_API_BASE_URL,DEBUG,SOLR_ENDPOINT,REDIS_HOST,REDIS_PORT,USE_REDIS_CACHE
 import requests
@@ -425,9 +425,10 @@ def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 			end_idx=results_count
 
 		page_ids=ids[offset:end_idx]
-		results=orig_queryset.filter(id__in=page_ids).order_by(
-			Case(*[When(id=pk,then=pos) for pos,pk in enumerate(page_ids)])
-		) if page_ids else orig_queryset.none()
+		# Preserve the already deduplicated page without joining related sort fields again.
+		page_order=Case(*[When(pk=pk,then=index) for index,pk in enumerate(page_ids)],
+			output_field=IntegerField())
+		results=orig_queryset.filter(id__in=page_ids).order_by(page_order)
 	else:
 		results=orig_queryset.filter(id__in=ids)
 		results=sort_queryset(results,params,all_fields)
