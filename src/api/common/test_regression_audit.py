@@ -1,4 +1,8 @@
-"""Independent audit probes: real DRF views and MariaDB query behavior."""
+"""Independent audit probes: real DRF views and MariaDB query behavior.
+
+PR340 deliberately standardizes sort direction. Tie ordering, null placement,
+unique rows and pagination requirements remain identical to PR341/342.
+"""
 
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -68,7 +72,7 @@ class ExistingPublicBehaviorAudit(TestCase):
                         fixtures,
                         key=lambda item: (
                             item[1] is None,
-                            (item[1] or 0) * (1 if prefix else -1),
+                            (item[1] or 0) * (-1 if prefix else 1),
                             item[0].pk,
                         ),
                     )
@@ -125,8 +129,8 @@ class ExistingPublicBehaviorAudit(TestCase):
         ids = [person.pk for person in people[:4]]
         field = "enslaved_relations__relation__voyage__voyage_dates__imp_arrival_at_port_of_dis_sparsedate__year"
         search_results = SimpleNamespace(docs=[{"id": value} for value in ids])
-        for prefix, expected in [("-", [ids[0], ids[2], ids[1], ids[3]]),
-                                 ("", [ids[0], ids[1], ids[2], ids[3]])]:
+        for prefix, expected in [("", [ids[0], ids[2], ids[1], ids[3]]),
+                                 ("-", [ids[0], ids[1], ids[2], ids[3]])]:
             for search in [False, True]:
                 for page_size in [1, 2]:
                     with self.subTest(prefix=prefix, search=search, page_size=page_size):
@@ -169,8 +173,8 @@ class ExistingPublicBehaviorAudit(TestCase):
         for parameters, expected in [
             ({}, ids),
             ({"order_by": []}, ids),
-            ({"order_by": ["-id"]}, ids),
-            ({"order_by": ["id"]}, list(reversed(ids))),
+            ({"order_by": ["id"]}, ids),
+            ({"order_by": ["-id"]}, list(reversed(ids))),
         ]:
             with self.subTest(parameters=parameters):
                 rows = sort_queryset(Voyage.objects.all(), parameters, Voyage_options)
@@ -242,7 +246,7 @@ class ExistingPublicBehaviorAudit(TestCase):
         )
         rows = sort_queryset(
             EnslaverIdentity.objects.all(),
-            {"order_by": ["-birth_year"]},
+            {"order_by": ["birth_year"]},
             EnslaverIdentity_options,
         )
         self.assertEqual(
@@ -251,7 +255,7 @@ class ExistingPublicBehaviorAudit(TestCase):
         rows, count, page, size, errors = post_req(
             EnslaverIdentity.objects.all(),
             None,
-            {"order_by": ["birth_year"], "page": 1, "page_size": 2},
+            {"order_by": ["-birth_year"], "page": 1, "page_size": 2},
             EnslaverIdentity_options,
             auto_prefetch=False,
             paginate=True,
