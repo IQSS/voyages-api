@@ -1,7 +1,7 @@
 """Contracts introduced by the coordinated map/statistics client integration."""
 import json
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import requests
 from django.test import SimpleTestCase, TestCase
@@ -9,7 +9,7 @@ from rest_framework.test import APIRequestFactory
 
 from common.connections import fetch_connections_counts
 from common.test_regression_audit import authenticated
-from document.models import Source, SourceVoyageConnection
+from document.models import ShortRef, Source, SourceVoyageConnection
 from voyage.models import Voyage
 from voyage.serializers import VoyageCrossTabRequestSerializer
 from voyage.views import VoyageBibliography, VoyageCrossTabs, VoyageGET, VoyageList
@@ -41,9 +41,10 @@ class MapStatisticsAPIContracts(TestCase):
         self.decoy = Voyage.objects.create(id=990160, voyage_id=990170, dataset=1)
 
     def test_bibliography_uses_public_ids_and_deduplicates_citations(self):
-        source = Source.objects.create(title='Archive', bib='<p><a href="https://fixture.invalid">Archive 2</a>.</p>')
-        duplicate = Source.objects.create(title='Duplicate', bib='Archive 2.')
-        excluded = Source.objects.create(title='Other', bib='Wrong voyage')
+        short_ref = ShortRef.objects.create(name='Issue93 bibliography')
+        source = Source.objects.create(short_ref=short_ref, title='Archive', bib='<p><a href="https://fixture.invalid">Archive 2</a>.</p>')
+        duplicate = Source.objects.create(short_ref=short_ref, title='Duplicate', bib='Archive 2.')
+        excluded = Source.objects.create(short_ref=short_ref, title='Other', bib='Wrong voyage')
         for record, voyage, page in [(source, self.voyage, '10'), (source, self.voyage, '2'),
                                     (duplicate, self.voyage, '2'), (excluded, self.decoy, '1')]:
             SourceVoyageConnection.objects.create(source=record, voyage=voyage, page_range=page)
