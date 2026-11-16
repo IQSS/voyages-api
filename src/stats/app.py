@@ -225,11 +225,7 @@ def groupby():
 		df2[binrows]=df2[binrows].astype('int')
 		binvar_min=df2[binrows].min()
 		binvar_max=df2[binrows].max()
-		binvar_ints=list(range(int(binvar_min),int(binvar_max)+1))
-		if binvar_max-binvar_min <=binsize:
-			nbins=1
-		else:
-			nbins=int((binvar_max-binvar_min)/binsize)+1
+		nbins=(binvar_max-binvar_min)//binsize+1
 		
 		bin_tuples=[]
 		for nbin in range(nbins):
@@ -498,11 +494,7 @@ def estimates_pivot():
 			pv[rows]=pv[rows].astype('int')
 			binvar_min=pv[rows].min()
 			binvar_max=pv[rows].max()
-			binvar_ints=list(range(int(binvar_min),int(binvar_max)+1))
-			if binvar_max-binvar_min <=binsize:
-				nbins=1
-			else:
-				nbins=int((binvar_max-binvar_min)/binsize)+1
+			nbins=(binvar_max-binvar_min)//binsize+1
 			
 			bin_tuples=[]
 			for nbin in range(nbins):
