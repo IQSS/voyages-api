@@ -441,6 +441,21 @@ def post_req(orig_queryset,s,r,options_dict,auto_prefetch=True,paginate=False):
 	
 	return results,results_count,page,page_size,error_messages
 
+def _option_field(schema):
+	"""Read an optional OpenAPI 3.1 field using its concrete type or reference."""
+	for key in ('oneOf', 'anyOf'):
+		if key in schema and {'type': 'null'} in schema[key]:
+			concrete = [item for item in schema[key] if item != {'type': 'null'}]
+			if len(concrete) == 1:
+				schema = concrete[0]
+	field_type = schema.get('type')
+	if isinstance(field_type, list):
+		concrete = [item for item in field_type if item != 'null']
+		if len(concrete) == 1:
+			return {**schema, 'type': concrete[0]}
+	return schema
+
+
 def getJSONschema(base_obj_name,hierarchical=False,rebuild=False):
 	'''
 	Recursively walks the OpenAPI schemas to build flat json files that we can later use for indexing, serializer population and validation, etc.
@@ -454,12 +469,19 @@ def getJSONschema(base_obj_name,hierarchical=False,rebuild=False):
 	r=requests.get(url=OPEN_API_BASE_URL+"schema/?format=json")
 	j=json.loads(r.text)
 	schemas=j['components']['schemas']
-	base_obj_name=base_obj_name
+	# Clients use public model names. The list serializers add connection counts
+	# and have their own OpenAPI component names.
+	list_components = {
+		'Voyage': 'VoyageListItem',
+		'Enslaved': 'EnslavedListItem',
+		'Enslaver': 'EnslaverListItem',
+		'EnslaverIdentity': 'EnslaverListItem',
+	}
 	def walker(output,schemas,obj_name,ismany=False):
 		obj=schemas[obj_name]
 		if 'properties' in obj:
 			for fieldname in obj['properties']:
-				thisfield=obj['properties'][fieldname]
+				thisfield=_option_field(obj['properties'][fieldname])
 				if 'allOf' in thisfield:
 					thisfield=thisfield['allOf'][0]
 # 					print(fieldname,'allof') ## OK THESE ARE M2M
@@ -480,7 +502,7 @@ def getJSONschema(base_obj_name,hierarchical=False,rebuild=False):
 						}
 # 						print(fieldname,'bottomval')
 					else:
-						thisfield_items=thisfield['items']
+						thisfield_items=_option_field(thisfield['items'])
 						if 'type' in thisfield_items:
 # 							print('array otherbottomvalue',thisfield)
 							output[fieldname]={
@@ -496,7 +518,7 @@ def getJSONschema(base_obj_name,hierarchical=False,rebuild=False):
 			print(obj)
 		return output
 	
-	output=walker({},schemas,base_obj_name)
+	output=walker({},schemas,list_components.get(base_obj_name, base_obj_name))
 		
 	if not hierarchical:
 		def flatten_this(input_dict,output_dict,keychain=[]):

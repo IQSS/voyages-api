@@ -460,7 +460,7 @@ class VoyageListRequestSerializer(serializers.Serializer):
 
 class VoyageListItemSerializer(VoyageSerializer):
 	connections_count=serializers.SerializerMethodField(allow_null=True)
-	def get_connections_count(self,instance) -> serializers.IntegerField(allow_null=True):
+	def get_connections_count(self,instance) -> serializers.IntegerField():
 		return connections_count_for(self,instance)
 
 class VoyageListResponseSerializer(serializers.Serializer):

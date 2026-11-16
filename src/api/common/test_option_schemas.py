@@ -18,6 +18,9 @@ class PublicOptionSchemas(SimpleTestCase):
             path("past/enslaved/", EnslavedList.as_view()),
             path("past/enslaver/", EnslaverList.as_view()),
         ]).get_schema(public=True)
+        for component in ("VoyageListItem", "EnslavedListItem", "EnslaverListItem"):
+            field = document["components"]["schemas"][component]["properties"]["connections_count"]
+            self.assertCountEqual(field["type"], ["integer", "null"])
         fields = {
             "Voyage": ("voyage_ship", "ship_name"),
             "Enslaved": ("post_disembark_location", "name"),

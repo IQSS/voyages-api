@@ -474,7 +474,7 @@ class EnslavedListRequestSerializer(serializers.Serializer):
 
 class EnslavedListItemSerializer(EnslavedSerializer):
 	connections_count=serializers.SerializerMethodField(allow_null=True)
-	def get_connections_count(self,instance) -> serializers.IntegerField(allow_null=True):
+	def get_connections_count(self,instance) -> serializers.IntegerField():
 		return connections_count_for(self,instance)
 
 class EnslavedListResponseSerializer(serializers.Serializer):
@@ -519,7 +519,7 @@ class EnslaverListRequestSerializer(serializers.Serializer):
 	
 class EnslaverListItemSerializer(EnslaverIdentitySerializer):
 	connections_count=serializers.SerializerMethodField(allow_null=True)
-	def get_connections_count(self,instance) -> serializers.IntegerField(allow_null=True):
+	def get_connections_count(self,instance) -> serializers.IntegerField():
 		return connections_count_for(self,instance)
 	class Meta(EnslaverIdentitySerializer.Meta):
 		fields=list(EnslaverIdentitySerializer.Meta.fields)+['connections_count']
