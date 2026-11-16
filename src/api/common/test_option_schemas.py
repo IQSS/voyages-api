@@ -45,3 +45,7 @@ class PublicOptionSchemas(SimpleTestCase):
                             self.assertEqual(options[name], {"type": "integer", "many": False})
                         source = options["sources"]["bib"] if flag == "True" else options["sources__bib"]
                         self.assertEqual(source, {"type": "string", "many": True})
+                        if model == "Voyage":
+                            self.assertEqual(options["cargo"], {"type": "string", "many": True})
+                        if model in ("Enslaver", "EnslaverIdentity"):
+                            self.assertEqual(options["names"], {"type": "string", "many": True})

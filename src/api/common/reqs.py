@@ -507,7 +507,7 @@ def getJSONschema(base_obj_name,hierarchical=False,rebuild=False):
 # 							print('array otherbottomvalue',thisfield)
 							output[fieldname]={
 								'type':thisfield_items['type'],
-								'many':field_many
+								'many':True
 							}
 						elif '$ref'	in thisfield_items:
 # 							print("array, ref???",thisfield)
