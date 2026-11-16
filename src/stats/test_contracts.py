@@ -97,6 +97,26 @@ class CrosstabContracts(unittest.TestCase):
         self.assertEqual(table['totals'][-1], 3.0)
         self.assertIsInstance(table['values'][0][-1], float)
 
+    def test_year_bins_keep_every_observed_year_and_clip_only_the_last_label(self):
+        cases = [
+            (10, [1514, 1521], ['1511-1520', '1521-1521'], [1, 2]),
+            (10, [1514, 1514], ['1511-1514'], [3]),
+            (10, [1520, 1520], ['1511-1520'], [3]),
+            (10, [1514, 1537], ['1511-1520', '1531-1537'], [1, 2]),
+            (25, [1514, 1537], ['1501-1525', '1526-1537'], [1, 2]),
+            (25, [1500, 1525], ['1476-1500', '1501-1525'], [1, 2]),
+            (1, [1510, 1511], ['1510', '1511'], [1, 2]),
+        ]
+        for width, years, labels, counts in cases:
+            with self.subTest(width=width, years=years):
+                service.big_df['df'] = pd.DataFrame({
+                    'id': [1, 2], 'year': years, 'col': ['X', 'X'], 'amount': [1, 2],
+                })
+                table = self.table(ids=[1, 2], rows='year', rows_label='Year', binsize=width)
+                self.assertEqual(table['rows'], labels)
+                self.assertEqual([row[-1] for row in table['values']], counts)
+                self.assertEqual(table['totals'], [3, 3])
+
     def test_percentages_and_normalized_values_remain_fractional(self):
         self.assertEqual(self.table(ids=[1, 2], value_field='ratio', agg_fn='mean')['totals'][-1], .5)
         table = self.table(ids=[1, 2, 3], normalize=['index'])
