@@ -41,4 +41,7 @@ class PublicOptionSchemas(SimpleTestCase):
                         field = options[parent][leaf] if flag == "True" else options[parent + "__" + leaf]
                         self.assertEqual(field["type"], "string")
                         self.assertIsInstance(field["many"], bool)
-                        self.assertEqual(options["connections_count"]["type"], "integer")
+                        for name in ("id", "connections_count"):
+                            self.assertEqual(options[name], {"type": "integer", "many": False})
+                        source = options["sources"]["bib"] if flag == "True" else options["sources__bib"]
+                        self.assertEqual(source, {"type": "string", "many": True})
