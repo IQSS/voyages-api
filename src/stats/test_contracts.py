@@ -97,6 +97,51 @@ class CrosstabContracts(unittest.TestCase):
         self.assertEqual(table['totals'][-1], 3.0)
         self.assertIsInstance(table['values'][0][-1], float)
 
+    def test_year_bins_keep_every_observed_year_and_clip_only_the_last_label(self):
+        cases = [
+            (10, [1514, 1521], ['1511-1520', '1521-1521'], [1, 2]),
+            (10, [1514, 1514], ['1511-1514'], [3]),
+            (10, [1520, 1520], ['1511-1520'], [3]),
+            (10, [1514, 1537], ['1511-1520', '1531-1537'], [1, 2]),
+            (25, [1514, 1537], ['1501-1525', '1526-1537'], [1, 2]),
+            (25, [1500, 1525], ['1476-1500', '1501-1525'], [1, 2]),
+            (1, [1510, 1511], ['1510', '1511'], [1, 2]),
+        ]
+        for width, years, labels, counts in cases:
+            with self.subTest(width=width, years=years):
+                service.big_df['df'] = pd.DataFrame({
+                    'id': [1, 2], 'year': years, 'col': ['X', 'X'], 'amount': [1, 2],
+                })
+                table = self.table(ids=[1, 2], rows='year', rows_label='Year', binsize=width)
+                self.assertEqual(table['rows'], labels)
+                self.assertEqual([row[-1] for row in table['values']], counts)
+                self.assertEqual(table['totals'], [3, 3])
+
+    def test_chart_and_estimate_bins_start_at_the_observed_minimum_and_keep_the_maximum(self):
+        for final, group_labels, estimate_labels, counts in [
+            (1524, ['1514-1523', '1524-1524'], ['1514-1523', '1524'], [5, 7]),
+            (1525, ['1514-1523', '1524-1525'], ['1514-1523', '1524-1525'], [5, 7]),
+            (1514, ['1514-1514'], ['1514'], [12]),
+        ]:
+            with self.subTest(final=final):
+                frame = pd.DataFrame({'id': [1, 2], 'year': [1514, final],
+                                      'nation__name': ['Spain', 'Portugal'], 'amount': [5, 7]})
+                service.big_df['df'] = frame
+                service.estimate_pivot_tables['df'] = frame
+                group = self.client.post('/groupby/', json={
+                    'ids': [1, 2], 'by': 'year__bins__10', 'vals': 'amount', 'agg_fn': 'sum',
+                })
+                self.assertEqual(group.status_code, 200)
+                self.assertEqual(json.loads(group.data), {'year': group_labels, 'amount': counts})
+                estimates = self.client.post('/estimates_pivot/', json={
+                    'ids': [1, 2], 'rows': ['year'], 'cols': ['nation__name'],
+                    'vals': ['amount'], 'binsize': 10, 'mode': 'csv',
+                })
+                self.assertEqual(estimates.status_code, 200)
+                rows = list(csv.DictReader(io.StringIO(json.loads(estimates.data)['data'])))
+                self.assertEqual([row[''] for row in rows], [*estimate_labels, 'Totals'])
+                self.assertEqual([float(row['Totals']) for row in rows], [*counts, 12])
+
     def test_percentages_and_normalized_values_remain_fractional(self):
         self.assertEqual(self.table(ids=[1, 2], value_field='ratio', agg_fn='mean')['totals'][-1], .5)
         table = self.table(ids=[1, 2, 3], normalize=['index'])

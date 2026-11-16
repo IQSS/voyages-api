@@ -225,11 +225,7 @@ def groupby():
 		df2[binrows]=df2[binrows].astype('int')
 		binvar_min=df2[binrows].min()
 		binvar_max=df2[binrows].max()
-		binvar_ints=list(range(int(binvar_min),int(binvar_max)+1))
-		if binvar_max-binvar_min <=binsize:
-			nbins=1
-		else:
-			nbins=int((binvar_max-binvar_min)/binsize)+1
+		nbins=(binvar_max-binvar_min)//binsize+1
 		
 		bin_tuples=[]
 		for nbin in range(nbins):
@@ -498,11 +494,7 @@ def estimates_pivot():
 			pv[rows]=pv[rows].astype('int')
 			binvar_min=pv[rows].min()
 			binvar_max=pv[rows].max()
-			binvar_ints=list(range(int(binvar_min),int(binvar_max)+1))
-			if binvar_max-binvar_min <=binsize:
-				nbins=1
-			else:
-				nbins=int((binvar_max-binvar_min)/binsize)+1
+			nbins=(binvar_max-binvar_min)//binsize+1
 			
 			bin_tuples=[]
 			for nbin in range(nbins):
@@ -667,44 +659,30 @@ def crosstabs():
 	df=df[df['id'].isin(ids)]
 	
 	rowkey=rows
-	bin_labels=None
+	last_year=None
 	if binsize is not None and len(df)>0:
 		binsize=int(binsize)
 		df=df[df[rows].notna() & (df[rows]!=0)]
 		if len(df)>0:
 			years=df[rows].astype('int')
-			binvar_min=years.min()
-			binvar_min=binvar_min-binvar_min%binsize
-			if binvar_min%10==0:
-				binvar_min+=1
-			binvar_max=years.max()
-			if binvar_max-binvar_min<=binsize:
-				nbins=1
-			else:
-				nbins=int((binvar_max-binvar_min)/binsize)+1
-			bin_tuples=[]
-			for nbin in range(nbins):
-				nbinmin=binvar_min+(binsize*nbin)
-				nbinmax=min(binvar_min+(binsize*(nbin+1))-1,binvar_max)
-				bin_tuples.append((int(nbinmin),int(nbinmax)))
-			bin_labels={
-				a:(str(a) if binsize==1 and a==b else f"{a}-{b}")
-				for a,b in bin_tuples
-			}
-			in_range=years>=binvar_min
-			df=df[in_range]
-			years=years[in_range]
+			first_year=int(years.min())
+			anchor=first_year-first_year%binsize
+			if anchor%10==0:
+				anchor+=1
+			last_year=int(years.max())
+			# A year just below the historical anchor belongs to the preceding bin.
 			rowkey='__row_bin__'
-			df=df.assign(**{rowkey:binvar_min+((years-binvar_min)//binsize)*binsize})
-	
+			df=df.assign(**{rowkey:anchor+((years-anchor)//binsize)*binsize})
+
 	def as_label(v):
 		if isinstance(v,float) and v.is_integer():
 			return str(int(v))
 		return str(v)
 	
 	def row_label(v):
-		if bin_labels is not None:
-			return bin_labels[int(v)]
+		if last_year is not None:
+			start=int(v)
+			return str(start) if binsize==1 else f"{start}-{min(start+binsize-1,last_year)}"
 		return as_label(v)
 	
 	def cell_values(frame):
@@ -718,7 +696,7 @@ def crosstabs():
 		totals=None
 		col_paths=[]
 	else:
-		undefined_vars=list(dict.fromkeys(columns+([] if bin_labels is not None else [rows])))
+		undefined_vars=list(dict.fromkeys(columns+([] if last_year is not None else [rows])))
 		df=df.assign(**{c:df[c].astype(object).where(df[c].notna() & df[c].ne('nan'),'Undefined') for c in undefined_vars})
 		
 		ct=pd.crosstab(
@@ -734,7 +712,7 @@ def crosstabs():
 			t=t if isinstance(t,tuple) else (t,)
 			return (t[0]=='All',)+tuple((x=='Undefined',str(x)) for x in t)
 		ct=ct[sorted(ct.columns,key=undefined_last)]
-		if bin_labels is None:
+		if last_year is None:
 			ct=ct.loc[sorted(ct.index,key=lambda i:(i=='All',i=='Undefined'))]
 		
 		col_tuples=[c if isinstance(c,tuple) else (c,) for c in ct.columns]
